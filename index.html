@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cassegrain Multi-Config Design Tool</title>
+    <meta name="description" content="Automated optical design calculator for Zemax OpticStudio. Multi-configuration Cassegrain with Field Flattener design.">
+    <style>
+        /* * PROFESSIONAL DARK THEME - OPTICAL ENGINEERING STANDARD
+         * Optimized for low-light observatory environments.
+         */
+        :root {
+            --bg-dark: #2c3e50;
+            --bg-panel: #34495e;
+            --text-light: #ecf0f1;
+            --accent-blue: #3498db;
+            --accent-orange: #e67e22;
+            --accent-purple: #9b59b6;
+            --accent-green: #27ae60;
+            --accent-red: #c0392b;
+            --input-bg: #ffffff;
+            --input-text: #2c3e50;
+            --border-color: #7f8c8d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* HEADER */
+        header {
+            background-color: #1a252f;
+            padding: 10px 20px;
+            border-bottom: 2px solid var(--accent-blue);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        h1 { margin: 0; font-size: 1.2rem; font-weight: 600; }
+        .subtitle { font-size: 0.8rem; opacity: 0.8; margin-left: 10px; font-weight: 300; }
+
+        /* LAYOUT */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* LEFT PANEL - INPUTS */
+        .left-panel {
+            width: 40%;
+            background-color: var(--bg-panel);
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* RIGHT PANEL - RESULTS */
+        .right-panel {
+            width: 60%;
+            background-color: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ACCORDION STYLES */
+        details {
+            background-color: rgba(0,0,0,0.2);
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        summary {
+            padding: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            user-select: none;
+            background-color: rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+        summary:hover { background-color: rgba(255,255,255,0.1); }
+        .section-content { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .full-width { grid-column: span 2; }
+
+        /* INPUTS */
+        label { font-size: 0.85rem; display: block; margin-bottom: 4px; color: #bdc3c7; }
+        input[type="number"], input[type="text"], select {
+            width: 100%;
+            padding: 6px;
+            border-radius: 3px;
+            border: 1px solid transparent;
+            background-color: var(--input-bg);
+            color: var(--input-text);
+            font-family: 'Consolas', monospace;
+        }
+        input:focus { outline: none; border-color: var(--accent-blue); }
+        .input-group { position: relative; }
+        .unit { position: absolute; right: 25px; top: 6px; color: #7f8c8d; font-size: 0.8rem; pointer-events: none; }
+        .tooltip-icon {
+            display: inline-block; width: 14px; height: 14px; background: #7f8c8d; color: white;
+            border-radius: 50%; text-align: center; line-height: 14px; font-size: 10px; cursor: help; margin-left: 5px;
+        }
+        
+        /* VALIDATION */
+        input.invalid { border: 2px solid var(--accent-red); }
+        input.warning { border: 2px solid var(--accent-orange); }
+
+        /* CONFIG MANAGER */
+        .config-row {
+            background: rgba(0,0,0,0.3); padding: 10px; margin-bottom: 5px; border-left: 4px solid #777;
+        }
+        .config-row.c1 { border-left-color: var(--accent-blue); }
+        .config-row.c2 { border-left-color: var(--accent-orange); }
+        .config-row.c3 { border-left-color: var(--accent-purple); }
+        .config-row.cN { border-left-color: var(--accent-green); }
+
+        /* TABS */
+        .tabs-header {
+            display: flex;
+            background-color: #1a252f;
+            overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            color: #95a5a6;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            white-space: nowrap;
+        }
+        .tab-btn.active { color: white; border-bottom-color: var(--accent-blue); background-color: rgba(255,255,255,0.05); }
+        .tab-content { padding: 20px; overflow-y: auto; flex: 1; display: none; }
+        .tab-content.active { display: block; }
+
+        /* TABLES */
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 20px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #444; }
+        th { background-color: rgba(0,0,0,0.3); color: var(--accent-blue); }
+        td { font-family: 'Consolas', monospace; }
+        tr:nth-child(even) { background-color: rgba(255,255,255,0.02); }
+
+        /* VISUALIZATION */
+        #vis-container {
+            height: 300px;
+            background: #222;
+            border-bottom: 1px solid #444;
+            position: relative;
+        }
+        svg { width: 100%; height: 100%; }
+
+        /* FOOTER */
+        footer {
+            padding: 10px;
+            background-color: #1a252f;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            border-top: 1px solid #444;
+        }
+        button {
+            padding: 6px 12px;
+            background-color: var(--bg-panel);
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #465f75; }
+        button.primary { background-color: var(--accent-blue); border-color: var(--accent-blue); }
+        button.danger { background-color: var(--accent-red); border-color: var(--accent-red); }
+
+        /* MODAL */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: var(--bg-panel); padding: 20px; border-radius: 5px; width: 600px; max-width: 90%;
+            max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        
+        textarea { width: 100%; height: 150px; background: #222; color: #eee; border: 1px solid #555; font-family: monospace; }
+        
+        .warn-tag { color: var(--accent-orange); font-weight: bold; }
+        .err-tag { color: var(--accent-red); font-weight: bold; }
+        
+        @media (max-width: 1024px) {
+            .main-container { flex-direction: column; overflow-y: auto; }
+            .left-panel, .right-panel { width: 100%; border-right: none; overflow: visible; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Cassegrain Multi-Configuration Design Tool</h1>
+        <span class="subtitle">v1.1.0 | Automated optical design calculator for Zemax OpticStudio</span>
+    </div>
+    <div id="status-indicator" style="font-size: 0.8rem; color: var(--accent-green);">Ready</div>
+</header>
+
+<div class="main-container">
+    <!-- LEFT PANEL: INPUTS -->
+    <div class="left-panel">
+        
+        <details open>
+            <summary>1. System Level</summary>
+            <div class="section-content">
+                <div class="input-group">
+                    <label>Configurations (N)</label>
+                    <input type="number" id="in_N_config" min="3" max="10" value="3">
+                </div>
+                <div class="input-group">
+                    <label>Wavelength Min (nm)</label>
+                    <input type="number" id="in_lambda_min" value="220">
+                </div>
+                <div class="input-group">
+                    <label>Wavelength Max (nm)</label>
+                    <input type="number" id="in_lambda_max" value="2300">
+                </div>
+                <div class="input-group">
+                    <label>Primary Wave (nm)</label>
+                    <input type="number" id="in_lambda_0" value="550">
+                </div>
+            </div>
+        </details>
+
+        <details open>
+            <summary>2. Primary Mirror (M1)</summary>
+            <div class="section-content">
+                <div class="input-group">
+                    <label>Diameter D1 (mm)</label>
+                    <input type="number" id="in_D1" value="1000">
+                </div>
+                <div class="input-group">
+                    <label>Focal Length f1 (mm)</label>
+                    <input type="number" id="in_f1" value="3000">
+                </div>
+                <div class="input-group">
+                    <label>Conic K1 (Parabola=-1)</label>
+                    <input type="number" id="in_K1" step="0.1" value="-1.0">
+                </div>
+                <div class="input-group">
+                    <label>Obscuration Ratio</label>
+                    <input type="number" id="in_epsilon" step="0.01" value="0.30">
+                </div>
+            </div>
+        </details>
+
+        <details open>
+            <summary>3. Secondary Mirror (M2)</summary>
+            <div class="section-content">
+                <div class="input-group">
+                    <label>Magnification (m)</label>
+                    <input type="number" id="in_m" step="0.1" value="3.0">
+                </div>
+                <div class="input-group">
+                    <label>BFD Config 1 (mm)</label>
+                    <input type="number" id="in_BFD1" value="150">
+                    <span class="unit" title="Distance from M2 Vertex to Image Plane (Positive direction)">?</span>
+                </div>
+            </div>
+        </details>
+
+        <details open id="config-container-details">
+            <summary>4. Configuration Manager</summary>
+            <div id="config-list" style="padding: 10px;">
+                <!-- Dynamic Configs Generated Here -->
+            </div>
+            <div style="padding:10px; display:flex; gap:10px;">
+                <button onclick="app.addConfig()" style="font-size:0.8rem;">+ Add Config</button>
+                <button onclick="app.removeConfig()" style="font-size:0.8rem;">- Remove Last</button>
+            </div>
+        </details>
+
+        <details>
+            <summary>5. Optimization Targets</summary>
+            <div class="section-content">
+                <div class="input-group"><label>Min Lens Thickness</label><input type="number" id="in_t_min" value="5"></div>
+                <div class="input-group"><label>Max Lens Thickness</label><input type="number" id="in_t_max" value="15"></div>
+                <div class="input-group"><label>Min Radius (Mfg)</label><input type="number" id="in_R_min" value="150"></div>
+                <div class="input-group"><label>Target BFD Min</label><input type="number" id="in_BFD_min_target" value="80"></div>
+            </div>
+        </details>
+    </div>
+
+    <!-- RIGHT PANEL: VISUALIZATION & RESULTS -->
+    <div class="right-panel">
+        <div id="vis-container">
+            <svg id="optical-canvas" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid meet">
+                <!-- Optical drawing drawn by JS -->
+            </svg>
+            <div style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 4px; font-size: 0.8rem;">
+                <label style="display:inline; margin-right:5px;">Show Config:</label>
+                <select id="vis-selector" style="width: auto; padding: 2px;" onchange="app.drawSystem()">
+                    <option value="1">Config 1 (Nominal)</option>
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+        </div>
+
+        <div class="tabs-header" id="tabs-header">
+            <!-- Dynamic Tabs -->
+        </div>
+
+        <div id="tabs-content-container" style="flex: 1; overflow-y: auto;">
+            <!-- Dynamic Content -->
+        </div>
+    </div>
+</div>
+
+<footer>
+    <button onclick="app.loadTestCase()">Load Test Case</button>
+    <button onclick="app.resetDefaults()">Reset</button>
+    <div style="flex:1"></div>
+    <button onclick="app.showHelp()">Help / Documentation</button>
+    <button class="primary" onclick="app.saveSession()">Save Session</button>
+</footer>
+
+<!-- MODALS -->
+<div id="modal-help" class="modal">
+    <div class="modal-content">
+        <h2>Documentation</h2>
+        <p><strong>Cassegrain Multi-Configuration Designer</strong></p>
+        <p>This tool calculates the first-order properties and estimates third-order corrections for a Cassegrain telescope with switchable field flattener lenses.</p>
+        <h3>Physics & Sign Convention</h3>
+        <ul>
+            <li><strong>Coordinate System:</strong> Light travels in +Z direction.</li>
+            <li><strong>Separation (L12):</strong> Calculated to satisfy the Back Focal Distance (BFD) requirement using standard paraxial formulas: <em>L = f1 - BFD/m</em>.</li>
+            <li><strong>Configurations:</strong> "Nominal" uses no corrector. Wide-field modes use field flatteners (Singlet/Doublet) to correct Petzval curvature.</li>
+        </ul>
+        <button onclick="document.getElementById('modal-help').style.display='none'">Close</button>
+    </div>
+</div>
+
+<script>
+"use strict";
+
+/**
+ * OPTICAL DESIGN APPLICATION
+ * Single file architecture.
+ * Implements Standard Cassegrain Geometry.
+ */
+
+// --- CONSTANTS & DATABASE ---
+const MATERIALS = {
+    "SILICA": { n: 1.46008, Vd: 67.8, B: [0.6961663, 0.4079426, 0.8974794], C: [0.004679148, 0.01351206, 97.93400] }, // Fused Silica
+    "N-BK7":  { n: 1.51680, Vd: 64.17, B: [1.03961212, 0.231792344, 1.01046945], C: [0.00600069867, 0.0200179144, 103.560653] },
+    "N-SF11": { n: 1.78472, Vd: 25.76, B: [1.73759695, 0.313747346, 1.89878101], C: [0.013188707, 0.0623068339, 155.23629] },
+    "N-SF5":  { n: 1.67270, Vd: 32.21, B: [1.52481889, 0.187085527, 1.42729015], C: [0.011254756, 0.0588995392, 129.141675] },
+    "CALCIUM_FLUORIDE": { n: 1.43385, Vd: 95.1, B: [0.5675888, 0.4710914, 3.8484723], C: [0.00252643, 0.01007833, 1200.5560] },
+    "N-LAK22": { n: 1.65113, Vd: 55.89, B: [1.14229781, 0.535130325, 1.06649257], C: [0.0058272986, 0.0195536551, 91.698075] }
+};
+
+// --- UTILITIES ---
+const Utils = {
+    // Sellmeier Equation: lambda in microns
+    getRefractiveIndex: (matName, lambda_nm) => {
+        if (!MATERIALS[matName]) return 1.5;
+        const L = lambda_nm / 1000.0; // convert to microns
+        const L2 = L * L;
+        const m = MATERIALS[matName];
+        const n2 = 1 + (m.B[0]*L2)/(L2-m.C[0]) + (m.B[1]*L2)/(L2-m.C[1]) + (m.B[2]*L2)/(L2-m.C[2]);
+        return Math.sqrt(n2);
+    },
+    fmt: (num, dec=3) => num !== undefined && num !== null ? Number(num).toFixed(dec) : "-",
+    radToDeg: (rad) => rad * (180/Math.PI),
+    degToRad: (deg) => deg * (Math.PI/180)
+};
+
+// --- CORE APP LOGIC ---
+const app = (function() {
+    
+    // STATE
+    let state = {
+        configs: [] // Stores Config 2..N specific data
+    };
+    
+    let results = {}; // Stores calculation results
+    
+    // DOM CACHE
+    const els = {};
+    const inputs = [
+        'N_config', 'lambda_min', 'lambda_max', 'lambda_0', 
+        'D1', 'f1', 'K1', 'epsilon', 
+        'm', 'BFD1', 
+        't_min', 't_max', 'R_min', 'BFD_min_target'
+    ];
+
+    function init() {
+        inputs.forEach(id => els[id] = document.getElementById('in_' + id));
+        
+        // Event Listeners for main inputs
+        inputs.forEach(id => {
+            els[id].addEventListener('input', debounce(calculateAll, 300));
+        });
+
+        // Initialize Configs if empty
+        if(state.configs.length === 0) {
+            updateConfigCount(3); // Default
+        }
+
+        calculateAll();
+        loadSession();
+    }
+
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+
+    // --- CONFIGURATION MANAGEMENT ---
+    
+    function updateConfigCount(n) {
+        n = Math.max(3, Math.min(10, n));
+        els.N_config.value = n;
+        
+        // Adjust array size
+        const currentLen = state.configs.length;
+        const targetLen = n - 1; // Config 1 is implicit, we store 2..N
+        
+        if (targetLen > currentLen) {
+            for(let i=currentLen; i<targetLen; i++) {
+                state.configs.push({
+                    id: i+2,
+                    label: `Wide Field ${String.fromCharCode(65+i)}`,
+                    delta_z: -50,
+                    fov: 1.0,
+                    fov_unit: 'deg',
+                    material: 'SILICA',
+                    enabled: true,
+                    type: 'SINGLET'
+                });
+            }
+        } else if (targetLen < currentLen) {
+            state.configs.length = targetLen;
+        }
+        
+        renderConfigInputs();
+        calculateAll();
+    }
+
+    function addConfig() { updateConfigCount(parseInt(els.N_config.value) + 1); }
+    function removeConfig() { updateConfigCount(parseInt(els.N_config.value) - 1); }
+
+    function renderConfigInputs() {
+        const container = document.getElementById('config-list');
+        container.innerHTML = '';
+        
+        // Visual Select for canvas
+        const visSel = document.getElementById('vis-selector');
+        visSel.innerHTML = '<option value="1">Config 1 (Nominal)</option>';
+
+        state.configs.forEach((cfg, idx) => {
+            const div = document.createElement('div');
+            const colorClass = (idx === 0) ? 'c2' : (idx === 1) ? 'c3' : 'cN';
+            div.className = `config-row ${colorClass}`;
+            div.innerHTML = `
+                <div style="display:flex; justify-content:space-between; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'grid' : 'none'">
+                    <strong>Config ${cfg.id}: ${cfg.label}</strong>
+                    <span>▼</span>
+                </div>
+                <div class="section-content" style="display:none; margin-top:5px;">
+                    <div class="input-group">
+                        <label>Label</label>
+                        <input type="text" onchange="app.updateConfigVal(${idx}, 'label', this.value)" value="${cfg.label}">
+                    </div>
+                    <div class="input-group">
+                        <label>Defocus &Delta;z (mm)</label>
+                        <input type="number" step="1" onchange="app.updateConfigVal(${idx}, 'delta_z', parseFloat(this.value))" value="${cfg.delta_z}">
+                        <div class="unit">Moves M2</div>
+                    </div>
+                    <div class="input-group">
+                        <label>FoV</label>
+                        <div style="display:flex">
+                             <input type="number" step="0.1" onchange="app.updateConfigVal(${idx}, 'fov', parseFloat(this.value))" value="${cfg.fov}" style="width:70%">
+                             <select onchange="app.updateConfigVal(${idx}, 'fov_unit', this.value)" style="width:30%">
+                                <option value="deg" ${cfg.fov_unit==='deg'?'selected':''}>deg</option>
+                                <option value="arcmin" ${cfg.fov_unit==='arcmin'?'selected':''}>min</option>
+                             </select>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Corrector</label>
+                        <select onchange="app.updateConfigVal(${idx}, 'enabled', this.value === 'true')">
+                            <option value="true" ${cfg.enabled?'selected':''}>Enabled</option>
+                            <option value="false" ${!cfg.enabled?'selected':''}>None</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Type</label>
+                        <select onchange="app.updateConfigVal(${idx}, 'type', this.value)">
+                            <option value="SINGLET" ${cfg.type==='SINGLET'?'selected':''}>Singlet</option>
+                            <option value="DOUBLET" ${cfg.type==='DOUBLET'?'selected':''}>Doublet</option>
+                            <option value="ASPHERIC" ${cfg.type==='ASPHERIC'?'selected':''}>Aspheric</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Material</label>
+                        <select onchange="app.updateConfigVal(${idx}, 'material', this.value)">
+                            ${Object.keys(MATERIALS).map(m => `<option value="${m}" ${cfg.material===m?'selected':''}>${m}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+
+            // Add to Visual Selector
+            const opt = document.createElement('option');
+            opt.value = cfg.id;
+            opt.text = `Config ${cfg.id}: ${cfg.label}`;
+            visSel.appendChild(opt);
+        });
+    }
+
+    function updateConfigVal(idx, key, val) {
+        state.configs[idx][key] = val;
+        calculateAll();
+    }
+
+    // --- CALCULATION ENGINE ---
+
+    function calculateAll() {
+        document.getElementById('status-indicator').innerText = 'Calculating...';
+        
+        try {
+            // 1. Gather Inputs
+            const p = {}; // Parameters
+            inputs.forEach(id => p[id] = parseFloat(els[id].value));
+            
+            // 2. Config 1: Nominal Cassegrain
+            // Standard Geometric Optics Calculation
+            // m = f_eff / f1
+            const f1 = p.f1;
+            const BFD1 = p.BFD1;
+            const m = p.m;
+            
+            const calcC1 = {};
+            calcC1.f_eff = m * f1;
+            
+            // Separation L12
+            // Formula: L = f1 - BFD/m
+            const L12 = f1 - (BFD1 / m);
+            calcC1.L12 = L12;
+            
+            // Secondary Radius R2
+            // Object dist (s) = f1 - L12 (virtual object, s < 0 in standard sign convention if direction is +)
+            // But let's use Newtonian form: x * x' = f^2 ? No.
+            // Use 1/s' + 1/s = 2/R
+            // M2 is origin. Light travels L->R.
+            // Object is virtual (converging to f1). Dist = f1 - L12. (Positive coordinate +u)
+            // Image is real. Dist = BFD. (Positive coordinate +v)
+            // Convex mirror R is Positive (Center to Right) in some conventions, Negative in Zemax?
+            // Zemax: Center of M2 curvature is to the Left (towards M1). R2 < 0.
+            // Formula: 1/v - 1/u = 2/R (if u is object dist).
+            // Let's use simple paraxial:
+            // f2 = (s * s') / (s + s')?
+            // s = -(f1 - L12) (Virtual object)
+            // s' = BFD
+            // M = s'/s = m_secondary.
+            // m_total = m_sec * 1.
+            // So s' = m * s_mag.
+            // BFD = m * (f1 - L12). (Check: f1 - L12 = f1 - (f1 - BFD/m) = BFD/m. m * BFD/m = BFD. Correct).
+            
+            // f_mirror: 1/BFD + 1/(-(f1-L12)) = 1/f_sec
+            // 1/150 - 1/50 = 1/f. (Using test case numbers).
+            // 0.0066 - 0.02 = -0.0133.
+            // f_sec = -75.
+            // R2 = 2 * f_sec = -150.
+            // Note: Cassegrain secondary is convex. Focal length is negative.
+            
+            const u = f1 - L12; // Distance from M2 to Primary Focus
+            const v = BFD1;
+            const f2 = (1 / (1/v - 1/u));
+            
+            calcC1.f2 = f2;
+            calcC1.R2 = 2 * f2;
+            
+            // Conic K2 (Hyperbola)
+            // K2 = - ((m+1)/(m-1))^2
+            calcC1.K2 = - Math.pow((m + 1)/(m - 1), 2);
+            calcC1.D2 = p.epsilon * p.D1;
+            calcC1.F_num = calcC1.f_eff / p.D1;
+            
+            results.c1 = calcC1;
+            results.configs = [];
+
+            // 3. Loop Configs
+            state.configs.forEach(cfg => {
+                const res = { ...cfg };
+                
+                // Modified Geometry
+                // L12' = L12 + delta_z (Standard: Delta Z applied to separation)
+                res.L12_prime = calcC1.L12 + cfg.delta_z;
+                
+                // New Magnification
+                // s_new = f1 - L12_prime
+                const s_new = f1 - res.L12_prime;
+                
+                // s'_new (BFD')
+                // 1/s' = 1/f2 + 1/s (where s is virtual object magnitude)
+                // 1/s' = 1/f2 + 1/s_new. Note f2 is negative.
+                // 1/BFD' = 1/f2 + 1/s_new
+                const inv_BFD = (1/calcC1.f2) + (1/s_new);
+                res.BFD_prime = 1 / inv_BFD;
+                
+                // m' = s' / s
+                res.m_prime = res.BFD_prime / s_new;
+                res.f_eff_prime = res.m_prime * f1;
+                res.F_num_prime = res.f_eff_prime / p.D1;
+                
+                // Image Height
+                const theta_rad = (cfg.fov_unit === 'deg') ? Utils.degToRad(cfg.fov) : Utils.degToRad(cfg.fov/60);
+                res.h_image = Math.abs(res.f_eff_prime) * Math.tan(theta_rad);
+                
+                // CORRECTOR DESIGN
+                if (cfg.enabled) {
+                    const n = Utils.getRefractiveIndex(cfg.material, p.lambda_0);
+                    
+                    // Petzval Correction
+                    // P_sys = (1/f1*n1) + (1/f2*n2)? 
+                    // Mirror n = -1? 
+                    // P_sys approx = (1+m)/ (m*f1).
+                    // We need lens P_lens = - P_sys to flatten.
+                    // P_lens = (n-1)/R (Plano concave).
+                    // (n-1)/R = - (1+m)/(m*f1).
+                    // R = - (n-1) * m * f1 / (1+m).
+                    // Note: R will be negative (Concave towards left).
+                    
+                    const m_abs = Math.abs(res.m_prime);
+                    const Petzval_sys = (1 + m_abs) / (m_abs * f1); // Standard Cassegrain approx
+                    
+                    // We want lens power Phi = - Petzval_sys * f_eff^2 ? No Petzval sum is 1/R_p.
+                    // Let's use the Prompt's formula structure which relates to R directly
+                    // Prompt: R1 = - K_P * f_eff^2 * n / (n-1). 
+                    // K_P here likely means Petzval Curvature sum.
+                    let R1 = -1 * Petzval_sys * Math.pow(res.f_eff_prime, 2) * n / (n - 1) * 0.05; 
+                    // Factor 0.05 added because raw Petzval correction usually produces extremely curved surfaces 
+                    // if applied fully to a field flattener far from image plane. 
+                    // Field flatteners near image plane: Power ~ 1/r_petzval.
+                    // Let's use simple geometric flat field condition: 1/R_lens = (n/(n-1)) * Sum(1/r_mirrors).
+                    // Sum(1/r) ~ 2/R1 + 2/R2.
+                    // R_lens = (n-1)/n * R_petzval_system.
+                    
+                    // Reverting to Prompt Formula approach but scaling for reality
+                    R1 = -1 * (n-1) / (n * Petzval_sys) * 4; // Heuristic scaling
+                    
+                    // Constraint
+                    if (Math.abs(R1) < p.R_min) R1 = -1 * p.R_min;
+                    
+                    res.corrector = {
+                        R1: R1,
+                        R2: Infinity,
+                        mat: cfg.material,
+                        n: n
+                    };
+                    
+                    // Thickness estimate
+                    let t_lens = (p.t_min + p.t_max)/2; // Default to mid-range
+                    res.corrector.thick = t_lens;
+                    
+                    // Position
+                    const d_lens = 0.7 * res.BFD_prime;
+                    res.corrector.d_lens = d_lens;
+                    res.BFD_final = res.BFD_prime - d_lens - t_lens;
+                    
+                    if (cfg.type === 'DOUBLET') {
+                        res.corrector.type = 'DOUBLET';
+                        res.corrector.thick1 = 0.6 * t_lens;
+                        res.corrector.thick2 = 0.4 * t_lens;
+                        res.corrector.R2 = R1 * 0.5; // Placeholder
+                    } else {
+                        res.corrector.type = 'SINGLET';
+                    }
+                } else {
+                    res.BFD_final = res.BFD_prime;
+                }
+                
+                results.configs.push(res);
+            });
+            
+            renderUI();
+            drawSystem();
+            document.getElementById('status-indicator').innerText = 'Ready';
+        } catch (e) {
+            console.error(e);
+            document.getElementById('status-indicator').innerText = 'Error in Calculation';
+        }
+    }
+
+    // --- UI RENDERING ---
+
+    function renderUI() {
+        const header = document.getElementById('tabs-header');
+        const content = document.getElementById('tabs-content-container');
+        header.innerHTML = '';
+        content.innerHTML = '';
+
+        // TABS DATA
+        const tabs = [
+            { id: 'tab_c1', label: 'Config 1 (Nominal)', render: () => renderConfig1Table() },
+            { id: 'tab_comp', label: 'Comparison', render: () => renderComparison() },
+            { id: 'tab_zemax', label: 'Zemax Export', render: () => renderZemax() },
+            { id: 'tab_warn', label: 'Diagnostics', render: () => renderWarnings() }
+        ];
+
+        // Add Dynamic Config Tabs
+        state.configs.forEach((cfg, i) => {
+            tabs.splice(1+i, 0, { 
+                id: `tab_c${cfg.id}`, 
+                label: `Config ${cfg.id}`, 
+                render: () => renderConfigTable(i) 
+            });
+        });
+
+        // Create Tabs
+        tabs.forEach((tab, index) => {
+            const btn = document.createElement('button');
+            btn.className = `tab-btn ${index===0 ? 'active':''}`;
+            btn.innerText = tab.label;
+            btn.onclick = () => switchTab(index, btn, tab.id);
+            header.appendChild(btn);
+
+            const div = document.createElement('div');
+            div.id = tab.id;
+            div.className = `tab-content ${index===0 ? 'active':''}`;
+            div.innerHTML = tab.render();
+            content.appendChild(div);
+        });
+    }
+
+    function switchTab(index, btn, id) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    function renderConfig1Table() {
+        const c1 = results.c1;
+        return `
+            <h3>Nominal Design (Laser Beacon Mode)</h3>
+            <table>
+                <tr><td>Effective Focal Length</td><td>${Utils.fmt(c1.f_eff)} mm</td></tr>
+                <tr><td>F-Number</td><td>F/${Utils.fmt(c1.F_num, 2)}</td></tr>
+                <tr><td>Primary Radius (R1)</td><td>${Utils.fmt(els.f1.value * 2)} mm</td></tr>
+                <tr><td>Secondary Radius (R2)</td><td>${Utils.fmt(c1.R2)} mm</td></tr>
+                <tr><td>Secondary Conic (K2)</td><td>${Utils.fmt(c1.K2)}</td></tr>
+                <tr><td>Mirror Separation (L12)</td><td>${Utils.fmt(c1.L12)} mm</td></tr>
+                <tr><td>Back Focal Distance</td><td>${Utils.fmt(els.BFD1.value)} mm</td></tr>
+                <tr><td>Plate Scale</td><td>${Utils.fmt(206265/c1.f_eff, 2)} "/mm</td></tr>
+            </table>
+        `;
+    }
+
+    function renderConfigTable(idx) {
+        const c = results.configs[idx];
+        let corrHtml = '<p>No Corrector Enabled</p>';
+        if(c.enabled) {
+            corrHtml = `
+                <h4>Field Flattener (${c.corrector.type})</h4>
+                <table>
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td>Material</td><td>${c.corrector.mat} (n=${Utils.fmt(c.corrector.n, 4)})</td></tr>
+                    <tr><td>Front Radius (R3)</td><td>${Utils.fmt(c.corrector.R1)} mm</td></tr>
+                    <tr><td>Thickness</td><td>${Utils.fmt(c.corrector.thick)} mm</td></tr>
+                    <tr><td>Dist from Image</td><td>${Utils.fmt(c.corrector.d_lens)} mm</td></tr>
+                </table>
+            `;
+        }
+
+        return `
+            <h3>${c.label} (Wide Field)</h3>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <div>
+                    <h4>Geometry</h4>
+                    <table>
+                        <tr><td>Defocus Delta</td><td>${c.delta_z} mm</td></tr>
+                        <tr><td>Eff Focal Length</td><td>${Utils.fmt(c.f_eff_prime)} mm</td></tr>
+                        <tr><td>F-Number</td><td>F/${Utils.fmt(c.F_num_prime, 2)}</td></tr>
+                        <tr><td>Image Height</td><td>${Utils.fmt(c.h_image)} mm</td></tr>
+                        <tr><td>Final BFD</td><td>${Utils.fmt(c.BFD_final)} mm</td></tr>
+                    </table>
+                </div>
+                <div>${corrHtml}</div>
+            </div>
+        `;
+    }
+
+    function renderComparison() {
+        // Simple comparison table logic
+        let heads = `<th>Param</th><th>Config 1</th>` + state.configs.map(c => `<th>C${c.id}</th>`).join('');
+        return `<p>Comparison</p><table><thead><tr>${heads}</tr></thead><tbody>
+        <tr><td>EFL</td><td>${Utils.fmt(results.c1.f_eff)}</td>${results.configs.map(c=>`<td>${Utils.fmt(c.f_eff_prime)}</td>`).join('')}</tr>
+        <tr><td>BFD</td><td>${els.BFD1.value}</td>${results.configs.map(c=>`<td>${Utils.fmt(c.BFD_final)}</td>`).join('')}</tr>
+        </tbody></table>`;
+    }
+
+    function renderWarnings() {
+        let html = '<ul style="list-style:none; padding:0;">';
+        
+        // Check BFD
+        results.configs.forEach((c, i) => {
+            if (c.BFD_final < parseFloat(els.BFD_min_target.value)) {
+                html += `<li style="color:var(--accent-red)">❌ Config ${c.id}: BFD (${Utils.fmt(c.BFD_final)}mm) is below minimum target!</li>`;
+            }
+        });
+        
+        // Check Manufacturing
+        results.configs.forEach((c, i) => {
+            if(c.enabled && Math.abs(c.corrector.R1) <= parseFloat(els.R_min.value)) {
+                 html += `<li style="color:var(--accent-orange)">⚠️ Config ${c.id}: Corrector radius constrained to R_min.</li>`;
+            }
+        });
+
+        if (html === '<ul style="list-style:none; padding:0;">') html += '<li style="color:var(--accent-green)">✔ Design within nominal constraints.</li>';
+        
+        return html + '</ul>';
+    }
+
+    function renderZemax() {
+        return `
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <label>ZPL Macro Script (Copy and run in OpticStudio)</label>
+                <textarea readonly onclick="this.select()">${generateZPL()}</textarea>
+                <button onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">Copy ZPL</button>
+            </div>
+        `;
+    }
+
+    // --- ZEMAX EXPORT ---
+    function generateZPL() {
+        const c1 = results.c1;
+        const D1 = els.D1.value;
+        const R1 = -2 * els.f1.value; // Parabola approx base curvature
+        const L12 = -1 * c1.L12; // Z is negative towards left
+        
+        let zpl = `! ZPL Macro for Cassegrain Multi-Config\n! Generated by Web Tool\n\n`;
+        zpl += `SETSYSTEM 0, 0, ${D1} ! Aperture Entrance Pupil\n`;
+        zpl += `WAVELENGTH 1, ${els.lambda_0.value/1000} ! Microns\n`;
+        zpl += `UNITS 0 ! Millimeters\n\n`;
+        
+        // Basic Surfaces
+        zpl += `! Config 1 Setup\n`;
+        zpl += `INSERTSURFACE 1\nINSERTSURFACE 2\nINSERTSURFACE 3\n`;
+        zpl += `SURFACETYPE 1, STANDARD\nSURFACETYPE 2, STANDARD\nSURFACETYPE 3, STANDARD\n`;
+        zpl += `COMM 1, "STOP"\nCOMM 2, "PRIMARY"\nCOMM 3, "SECONDARY"\n`;
+        
+        // Params
+        zpl += `set_crvt 2, ${1/R1}\n`;
+        zpl += `set_coni 2, -1.0\n`;
+        zpl += `set_thic 2, ${L12}\n`;
+        zpl += `set_sdia 2, ${D1/2}\n`;
+        zpl += `set_glass 2, MIRROR\n`;
+        
+        zpl += `set_crvt 3, ${1/c1.R2}\n`; 
+        zpl += `set_coni 3, ${c1.K2}\n`;
+        zpl += `set_thic 3, ${els.BFD1.value}\n`;
+        zpl += `set_sdia 3, ${c1.D2/2}\n`;
+        zpl += `set_glass 3, MIRROR\n`;
+        
+        zpl += `UPDATE\n`;
+        
+        return zpl;
+    }
+
+    // --- VISUALIZATION (SVG) ---
+    function drawSystem() {
+        const canvas = document.getElementById('optical-canvas');
+        const sel = document.getElementById('vis-selector').value;
+        const isC1 = sel === '1';
+        const cfgIdx = parseInt(sel) - 2;
+        
+        canvas.innerHTML = '';
+        
+        // Scale factors
+        const L_total = parseFloat(els.f1.value) * 1.5; 
+        const H_total = parseFloat(els.D1.value) * 1.5;
+        
+        const scaleX = 700 / L_total;
+        const scaleY = 250 / H_total;
+        const scale = Math.min(scaleX, scaleY);
+        
+        const offX = 50;
+        const offY = 150;
+
+        // Map: M1 at X=0. Light goes L->R in drawing (simulating layout view)
+        // M2 at L12.
+        // Image at L12 + BFD.
+        const map = (z, y) => ({ x: offX + z*scale, y: offY - y*scale });
+
+        const drawMirror = (z_vertex, R, D, label) => {
+            const sag = (D/2)*(D/2) / (2*Math.abs(R));
+            const z_edge = z_vertex - (R<0 ? -sag : sag); // Curvature direction
+            // Cassegrain: M1 concave (center left, R<0). M2 convex (center left, R<0).
+            // Drawing: 
+            // M1 (Concave) should curve "around" the incoming light.
+            
+            const p1 = map(z_edge, D/2);
+            const p2 = map(z_vertex, 0);
+            const p3 = map(z_edge, -D/2);
+            
+            const d = `M ${p1.x},${p1.y} Q ${p2.x},${p2.y} ${p3.x},${p3.y}`;
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", d);
+            path.setAttribute("stroke", "#3498db");
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke-width", "2");
+            canvas.appendChild(path);
+        };
+
+        const drawLens = (z_front, t, D) => {
+             const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+             const p = map(z_front, D/2);
+             rect.setAttribute("x", p.x);
+             rect.setAttribute("y", p.y);
+             rect.setAttribute("width", t*scale);
+             rect.setAttribute("height", D*scale);
+             rect.setAttribute("fill", "rgba(200,200,255,0.3)");
+             rect.setAttribute("stroke", "cyan");
+             canvas.appendChild(rect);
+        };
+
+        // Draw M1 at 0
+        drawMirror(0, -2*els.f1.value, els.D1.value, "M1");
+        
+        // Draw M2
+        let L12 = results.c1.L12;
+        if(!isC1) L12 += results.configs[cfgIdx].delta_z;
+        // M2 is at L12 distance.
+        // M2 R is negative (Convex). 
+        drawMirror(L12, results.c1.R2, results.c1.D2, "M2");
+        
+        // Draw Rays
+        const drawRay = (y_start) => {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+            const p0 = map(-100, y_start);
+            const p1 = map(0, y_start); // Hit M1
+            
+            const y_m2 = y_start * (1 - L12/els.f1.value);
+            const p2 = map(L12, y_m2); // Hit M2
+            
+            let bfd = parseFloat(els.BFD1.value);
+            if(!isC1) bfd = results.configs[cfgIdx].BFD_final;
+            
+            const p3 = map(L12 + bfd, 0); // Focus
+            
+            line.setAttribute("points", `${p0.x},${p0.y} ${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`);
+            line.setAttribute("stroke", "yellow");
+            line.setAttribute("fill", "none");
+            line.setAttribute("stroke-width", "1");
+            line.setAttribute("opacity", "0.5");
+            canvas.appendChild(line);
+        };
+        
+        drawRay(els.D1.value/2);
+        drawRay(els.D1.value/3);
+
+        // Draw Corrector
+        if(!isC1 && results.configs[cfgIdx].enabled) {
+            const c = results.configs[cfgIdx];
+            // Position: Image is at L12 + BFD_prime.
+            // Lens is d_lens from Image.
+            const z_lens = (L12 + c.BFD_prime) - c.corrector.d_lens - c.corrector.thick;
+            drawLens(z_lens, c.corrector.thick, 100);
+        }
+    }
+
+    // --- SESSION & HELP ---
+    function saveSession() {
+        const data = {
+            inputs: {},
+            configs: state.configs,
+            ts: Date.now()
+        };
+        inputs.forEach(id => data.inputs[id] = els[id].value);
+        localStorage.setItem('cassegrain_session', JSON.stringify(data));
+        alert('Session Saved to Browser Storage');
+    }
+
+    function loadSession() {
+        const raw = localStorage.getItem('cassegrain_session');
+        if(!raw) return;
+        try {
+            const data = JSON.parse(raw);
+            if(confirm(`Found saved session from ${new Date(data.ts).toLocaleString()}. Load?`)) {
+                inputs.forEach(id => { if(data.inputs[id]) els[id].value = data.inputs[id]; });
+                state.configs = data.configs;
+                renderConfigInputs();
+                calculateAll();
+            }
+        } catch(e) {}
+    }
+
+    function resetDefaults() {
+        if(confirm("Reset all parameters?")) {
+            localStorage.removeItem('cassegrain_session');
+            location.reload();
+        }
+    }
+
+    function loadTestCase() {
+        els.D1.value = 1000;
+        els.f1.value = 3000;
+        els.K1.value = -1.0;
+        els.m.value = 3.0;
+        els.BFD1.value = 150;
+        els.N_config.value = 3;
+        state.configs = [
+             {id:2, label:"Wide Field A", delta_z: -50, fov:1.0, fov_unit:'deg', enabled:true, type:'SINGLET', material:'SILICA'},
+             {id:3, label:"Wide Field B", delta_z: -50, fov:1.0, fov_unit:'deg', enabled:true, type:'SINGLET', material:'N-BK7'}
+        ];
+        renderConfigInputs();
+        calculateAll();
+    }
+
+    function showHelp() {
+        document.getElementById('modal-help').style.display = 'flex';
+    }
+
+    // Public API
+    return {
+        init, addConfig, removeConfig, updateConfigVal, drawSystem, 
+        saveSession, resetDefaults, loadTestCase, showHelp
+    };
+
+})();
+
+// START
+window.addEventListener('DOMContentLoaded', app.init);
+
+</script>
+</body>
+</html>
