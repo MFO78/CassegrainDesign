@@ -136,7 +136,7 @@
         th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #1e272e; }
         th { background-color: #1a252f; color: var(--accent-blue); position: sticky; top: 0; }
         td { font-family: 'Consolas', monospace; }
-        .row-header { font-weight: bold; color: #bdc3c7; width: 200px; }
+        .row-header { font-weight: bold; color: #bdc3c7; width: 220px; }
         .section-row td { background-color: #151b22; color: var(--accent-orange); font-weight: bold; text-transform: uppercase; font-size: 0.75rem; padding-top: 15px;}
         .warn-text { color: var(--accent-red); font-weight: bold; }
 
@@ -160,7 +160,7 @@
 <header>
     <div>
         <h1>Cassegrain Multi-Config Design Tool</h1>
-        <span class="subtitle">Unified Analytical Solver & Zemax Prescription</span>
+        <span class="subtitle">Analytical Solver & Deterministic Prescription Matrix</span>
     </div>
     <div class="btn-group" style="width: 300px; padding:0;">
         <button onclick="app.loadTestCase()">Load SMF Test Case</button>
@@ -296,8 +296,8 @@ const app = (function() {
                         <span style="color:#e74c3c; cursor:pointer; font-size:0.8rem;" onclick="app.removeConfig(${idx})">Remove</span>
                     </div>
                     <div class="input-group">
-                        <label>Defocus Δz</label>
-                        <input type="number" onchange="app.updateCfg(${idx}, 'dz', this.value)" value="${cfg.dz}"><span class="unit">mm</span>
+                        <label>Target EFL</label>
+                        <input type="number" onchange="app.updateCfg(${idx}, 'efl_target', this.value)" value="${cfg.efl_target}"><span class="unit">mm</span>
                     </div>
                     <div class="input-group" style="margin-top:6px;">
                         <label>FoV</label>
@@ -320,7 +320,7 @@ const app = (function() {
     }
 
     function addConfig() {
-        configs.push({ dz: -25, fov: 0.25, wave: 822, mat: 'SILICA' });
+        configs.push({ efl_target: 2400, fov: 0.25, wave: 822, mat: 'SILICA' });
         renderConfigs();
     }
 
@@ -340,45 +340,52 @@ const app = (function() {
             // 1. Parse Inputs
             const D1 = parseFloat(els.D1.value);
             const EFL = parseFloat(els.EFL.value);
-            const R1 = parseFloat(els.R1.value); // Usually negative
+            const R1 = parseFloat(els.R1.value); 
             const obs = parseFloat(els.obs.value);
             const fov1 = parseFloat(els.fov1.value);
             const wave1 = parseFloat(els.wave1.value);
 
             // 2. Base Optical Parameters
-            const f1 = Math.abs(R1) / 2; // Focal length of primary (positive magnitude)
-            const m = EFL / f1;          // Magnification
-            const D2 = obs * D1;         // Secondary absolute diameter
+            const f1 = Math.abs(R1) / 2; 
+            const m = EFL / f1;          
+            const D2 = obs * D1;         
 
-            // 3. Solve for Separation (L12) based on FoV and Obstruction
+            // 3. Solve for Separation (L12) based on Nominal FoV and Obstruction
             const half_fov_rad = Utils.degToRad(fov1 / 2);
             const denom = 2 * Math.tan(half_fov_rad) - (D1 / f1);
             const L12 = (D2 - D1) / denom;
             
             if(L12 <= 0 || isNaN(L12)) throw new Error("Invalid geometry: Check Obstruction/EFL ratio.");
 
-            // 4. Solve for BFD and M2 Curvature
+            // 4. Solve for Nominal BFD and M2 Curvature
             const BFD = m * (f1 - L12);
-            const u = f1 - L12; // Virtual object dist
+            const u = f1 - L12; 
             const f2 = 1 / ((1/BFD) - (1/u));
-            const R2 = 2 * f2; // M2 Radius
-            const K2 = -Math.pow((m + 1)/(m - 1), 2); // Conic
+            const R2 = 2 * f2; 
+            const K2 = -Math.pow((m + 1)/(m - 1), 2); 
 
             results.c1 = { EFL, f1, m, D1, R1, K1: -1.0, D2, L12, BFD, R2, K2, wave: wave1, fov: fov1 };
             results.wf = [];
 
-            // 5. Wide Field Iterations
+            // 5. Wide Field Iterations (Calculating dz from Target EFL)
             configs.forEach((cfg, idx) => {
                 const wf = { ...cfg, id: idx+2 };
                 
-                // New Positions
-                wf.L12 = L12 + cfg.dz;
-                const s = f1 - wf.L12;
-                wf.BFD = 1 / ((1/f2) + (1/s));
-                wf.m = wf.BFD / s;
-                wf.EFL = wf.m * f1;
+                // Solve for required M2 Shift (dz) to hit target EFL
+                wf.EFL = cfg.efl_target;
+                wf.m = wf.EFL / f1;
+                
+                // Calculate required virtual object distance (u_new)
+                const u_new = f2 * (1 - wf.m) / wf.m;
+                
+                // Calculate new separation and required shift
+                wf.L12 = f1 - u_new;
+                wf.dz = wf.L12 - L12; // M2 Shift relative to nominal
+                
+                // Calculate new Back Focal Distance
+                wf.BFD = wf.m * u_new;
 
-                // Vignetting Check on M2
+                // Vignetting Check on fixed M2
                 const y_m_M2 = (D1/2) * (1 - wf.L12/f1);
                 const y_c_M2 = wf.L12 * Math.tan(Utils.degToRad(cfg.fov/2));
                 wf.D2_req = 2 * (Math.abs(y_m_M2) + Math.abs(y_c_M2));
@@ -387,7 +394,7 @@ const app = (function() {
                 // Lens Solve
                 wf.n = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
                 const p_sum = (1 + Math.abs(wf.m)) / (Math.abs(wf.m) * f1);
-                wf.R_lens = -1 * (wf.n - 1) / (wf.n * p_sum) * 3.5; // Heuristic scaling
+                wf.R_lens = -1 * (wf.n - 1) / (wf.n * p_sum) * 3.5; 
 
                 const d_lens_img = 0.7 * wf.BFD; 
                 wf.d_lens = d_lens_img;
@@ -426,13 +433,13 @@ const app = (function() {
         let html = `
             <thead>
                 <tr>
-                    <th>Zemax Parameter</th>
+                    <th>Design Parameter Matrix</th>
                     <th>Nominal (C1)</th>
                     ${wfs.map(w => `<th>WF Mode (C${w.id})</th>`).join('')}
                 </tr>
             </thead>
             <tbody>
-                <tr class="section-row"><td colspan="${2 + wfs.length}">First Order Properties</td></tr>
+                <tr class="section-row"><td colspan="${2 + wfs.length}">System Specifications</td></tr>
                 <tr><td class="row-header">System EFL (mm)</td><td>${Utils.fmt(c1.EFL,1)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL,1)}</td>`).join('')}</tr>
                 <tr><td class="row-header">System F/#</td><td>${Utils.fmt(c1.EFL/c1.D1,2)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL/c1.D1,2)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Wavelength (nm)</td><td>${c1.wave}</td>${wfs.map(w => `<td>${w.wave}</td>`).join('')}</tr>
@@ -449,8 +456,9 @@ const app = (function() {
                 <tr><td class="row-header">Conic</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.K2,3)}</td></tr>
                 <tr><td class="row-header">Clear Semi-Diameter</td>
                     <td>${Utils.fmt(c1.D2/2,2)}</td>
-                    ${wfs.map(w => `<td class="${w.vignetted ? 'warn-text' : ''}">${Utils.fmt(w.D2_req/2,2)} ${w.vignetted ? '(Vignettes!)':''}</td>`).join('')}
+                    ${wfs.map(w => `<td class="${w.vignetted ? 'warn-text' : ''}">${Utils.fmt(w.D2_req/2,2)} ${w.vignetted ? '(Vignetted!)':''}</td>`).join('')}
                 </tr>
+                <tr><td class="row-header" style="color:var(--accent-orange);">M2 Shift (Δz) (mm)</td><td>0.000</td>${wfs.map(w => `<td style="color:var(--accent-orange);">${Utils.fmt(w.dz,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Thickness to Next (mm)</td><td>${Utils.fmt(c1.BFD,3)}</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD - w.d_lens - w.CT, 3)}</td>`).join('')}</tr>
 
                 <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 4: Field Flattener (Front)</td></tr>
@@ -458,11 +466,11 @@ const app = (function() {
                 <tr><td class="row-header">Thickness (CT) (mm)</td><td>0 (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Edge Thickness (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.ET,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Semi-Diameter (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.D_lens/2,2)}</td>`).join('')}</tr>
-                <tr><td class="row-header">Glass</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,3)})</td>`).join('')}</tr>
+                <tr><td class="row-header">Glass Material</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,3)})</td>`).join('')}</tr>
 
                 <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 5: Field Flattener (Back)</td></tr>
                 <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>Infinity</td>`).join('')}</tr>
-                <tr><td class="row-header">Thickness to Image</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.d_lens,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness to Image (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.d_lens,3)}</td>`).join('')}</tr>
             </tbody>
         `;
         document.getElementById('results-table').innerHTML = html;
@@ -478,7 +486,7 @@ const app = (function() {
     }
 
     function drawSystem(forceFit = false) {
-        if(!results.c1.EFL) return; // Not solved yet
+        if(!results.c1.EFL) return; 
         const canvas = document.getElementById('optical-canvas');
         canvas.innerHTML = '';
         
@@ -498,11 +506,8 @@ const app = (function() {
         }
 
         const M1_z = 0;
-        const M2_z = -L12;
+        const M2_z = -Math.abs(L12);
         const Img_z = M2_z + BFD;
-
-        // Draw Helper
-        const map = (z,y) => ({ x: z, y: y }); // SVG handles translation via viewBox
 
         // M1
         const R1 = Math.abs(c1.R1);
@@ -526,7 +531,7 @@ const app = (function() {
 
         // Marginal Rays
         const drawRay = (h_in) => {
-            const y_m2 = h_in * (1 - L12/c1.f1);
+            const y_m2 = h_in * (1 - Math.abs(L12)/c1.f1);
             const pts = `${M2_z - 500},${h_in} ${0},${h_in} ${M2_z},${y_m2} ${Img_z},0`;
             canvas.innerHTML += `<polyline points="${pts}" stroke="#f1c40f" fill="none" stroke-width="1.5" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
         };
@@ -577,19 +582,18 @@ const app = (function() {
 
     // --- TEST CASE & INIT ---
     function loadTestCase() {
-        // SMF NA ~0.14 Case. 
         els.D1.value = 600;
-        els.EFL.value = 3600; // F/6
-        els.R1.value = -1800; // f1=900
+        els.EFL.value = 3600; 
+        els.R1.value = -1800; 
         els.obs.value = 0.30;
-        els.fov1.value = 0.057; // 3.4'
+        els.fov1.value = 0.057; 
         els.wave1.value = 1055;
 
         configs = [
-             { dz: -25, fov: 0.25, wave: 822, mat: 'SILICA' },
-             { dz: -25, fov: 0.25, wave: 1807, mat: 'SILICA' }
+             { efl_target: 2400, fov: 0.25, wave: 822, mat: 'SILICA' },
+             { efl_target: 2400, fov: 0.25, wave: 1807, mat: 'SILICA' }
         ];
-        renderConfigs(); // Triggers solve
+        renderConfigs(); 
     }
 
     return { 
