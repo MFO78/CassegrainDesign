@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cassegrain Multi-Config Design Tool (Unified)</title>
-    <meta name="description" content="Analytical Cassegrain solver with paraxial focal shift correction.">
+    <meta name="description" content="Analytical Cassegrain solver with iterative paraxial raytrace.">
     <style>
         /* * PROFESSIONAL DARK THEME - OPTICAL ENGINEERING STANDARD */
         :root {
@@ -162,7 +162,7 @@
 <header>
     <div>
         <h1>Cassegrain Multi-Config Design Tool</h1>
-        <span class="subtitle">Analytical Solver & Deterministic Prescription Matrix (v4.1)</span>
+        <span class="subtitle">Iterative Paraxial Solver & Aspheric Corrector Matrix (v4.2)</span>
     </div>
     <div class="btn-group" style="width: 400px; padding:0;">
         <button onclick="app.loadTestCase()">Load SMF Case</button>
@@ -285,7 +285,7 @@ const app = (function() {
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
         
-        loadSession(); // Loads from storage, or creates defaults
+        loadSession(); 
     }
 
     function debounce(fn, ms) {
@@ -298,21 +298,16 @@ const app = (function() {
             inputs: inputs.map(id => els[id].value),
             configs: configs
         };
-        localStorage.setItem('cassegrain_design_v4_1', JSON.stringify(state));
-        
-        // Visual feedback
+        localStorage.setItem('cassegrain_design_v4_2', JSON.stringify(state));
         const btn = document.querySelector('.primary');
         const oldText = btn.innerText;
         btn.innerText = "Saved!";
         btn.style.backgroundColor = "#27ae60";
-        setTimeout(() => {
-            btn.innerText = oldText;
-            btn.style.backgroundColor = "";
-        }, 1500);
+        setTimeout(() => { btn.innerText = oldText; btn.style.backgroundColor = ""; }, 1500);
     }
 
     function loadSession() {
-        const saved = localStorage.getItem('cassegrain_design_v4_1');
+        const saved = localStorage.getItem('cassegrain_design_v4_2');
         if (saved) {
             try {
                 const state = JSON.parse(saved);
@@ -320,11 +315,9 @@ const app = (function() {
                 configs = state.configs;
                 renderConfigs();
                 return;
-            } catch (e) {
-                console.error("Failed to load session, falling back to default.", e);
-            }
+            } catch (e) { console.error("Session load failed", e); }
         }
-        loadTestCase(); // Fallback
+        loadTestCase();
     }
 
     // --- CONFIG MANAGEMENT ---
@@ -339,7 +332,7 @@ const app = (function() {
                         <span style="color:#e74c3c; cursor:pointer; font-size:0.8rem;" onclick="app.removeConfig(${idx})">Remove</span>
                     </div>
                     <div class="input-group">
-                        <label>Target EFL</label>
+                        <label>Target System EFL</label>
                         <input type="number" onchange="app.updateCfg(${idx}, 'efl_target', this.value)" value="${cfg.efl_target}"><span class="unit">mm</span>
                     </div>
                     <div class="input-group" style="margin-top:6px;">
@@ -377,7 +370,7 @@ const app = (function() {
         solveSystem();
     }
 
-    // --- ANALYTICAL SOLVER ---
+    // --- ITERATIVE PARAXIAL RAYTRACE ---
     function solveSystem() {
         try {
             // 1. Parse Inputs
@@ -389,91 +382,111 @@ const app = (function() {
             const wave1 = parseFloat(els.wave1.value);
             const ct_ratio = parseFloat(els.ct_ratio.value);
 
-            // 2. Base Optical Parameters
             const f1 = Math.abs(R1) / 2; 
             const m = EFL / f1;          
             const D2 = obs * D1;         
 
-            // 3. Solve for Separation (L12) based on Nominal FoV and Obstruction
+            // Nominal Layout (Config 1)
             const half_fov_rad = Utils.degToRad(fov1 / 2);
             const denom = 2 * Math.tan(half_fov_rad) - (D1 / f1);
             const L12 = (D2 - D1) / denom;
             
             if(L12 <= 0 || isNaN(L12)) throw new Error("Invalid geometry: Check Obstruction/EFL ratio.");
 
-            // 4. Solve for Nominal BFD and M2 Curvature
             const BFD = m * (f1 - L12);
-            const u = f1 - L12; 
-            const f2 = 1 / ((1/BFD) - (1/u));
+            const u_nom = f1 - L12; 
+            const f2 = 1 / ((1/BFD) - (1/u_nom));
             const R2 = 2 * f2; 
             const K2 = -Math.pow((m + 1)/(m - 1), 2); 
 
             results.c1 = { EFL, f1, m, D1, R1, K1: -1.0, D2, L12, BFD, R2, K2, wave: wave1, fov: fov1 };
             results.wf = [];
 
-            // 5. Wide Field Iterations (Calculating dz from Target EFL)
+            // 2. Wide Field Iterations (Finding dz to hit Target EFL WITH lens)
             configs.forEach((cfg, idx) => {
                 const wf = { ...cfg, id: idx+2 };
-                
-                // Solve for required M2 Shift (dz) to hit target EFL
-                wf.EFL = cfg.efl_target;
-                wf.m = wf.EFL / f1;
-                
-                // Calculate required virtual object distance (u_new)
-                const u_new = f2 * (1 - wf.m) / wf.m;
-                
-                // Calculate new separation and required shift
-                wf.L12 = f1 - u_new;
-                wf.dz = wf.L12 - L12; 
-                
-                // Calculate new Base Back Focal Distance (geometric intercept)
-                wf.BFD_geom = wf.m * u_new;
+                const n_ref = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
+                wf.n = n_ref;
 
-                // Vignetting Check on fixed M2
+                // Binary Search for dz to achieve target EFL
+                let dz_low = -400; 
+                let dz_high = 100;
+                let dz = 0;
+                let final_efl = 0;
+                let best_trace = {};
+
+                for (let iter = 0; iter < 30; iter++) {
+                    dz = (dz_low + dz_high) / 2;
+                    let L12_test = L12 + dz;
+                    
+                    // Mirror Trace
+                    const y1 = D1 / 2;
+                    const u1_p = -y1 / f1;
+                    const y2 = y1 + u1_p * L12_test;
+                    const u2_p = u1_p - (2 * y2 / R2); // R2 is negative
+                    
+                    const bfd_geom = -y2 / u2_p; // Distance from M2 to geometric focus
+                    const m_mirrors = bfd_geom / (f1 - L12_test);
+                    
+                    // Lens Design
+                    const p_sum = (1 + Math.abs(m_mirrors)) / (Math.abs(m_mirrors) * f1);
+                    const R_lens = -1 * (n_ref - 1) / (n_ref * p_sum) * 3.5; 
+                    const d_lens_img = 0.7 * bfd_geom; 
+                    const t_air = bfd_geom - d_lens_img;
+                    
+                    // Lens Diameter & Thickness
+                    const efl_mirrors = -y1 / u2_p;
+                    const u_m_img = -y1 / efl_mirrors;
+                    const y_m_lens = Math.abs(u_m_img * d_lens_img);
+                    const h_img = Math.abs(efl_mirrors) * Math.tan(Utils.degToRad(cfg.fov/2));
+                    const y_c_lens = h_img - ((h_img / bfd_geom) * d_lens_img);
+                    const D_lens = 2 * (y_m_lens + Math.abs(y_c_lens)) * 1.05;
+                    const CT = D_lens * ct_ratio;
+
+                    // Lens Trace
+                    const y3 = y2 + u2_p * t_air; // Front surface
+                    const p_lens_front = (n_ref - 1) / R_lens;
+                    const u3_p = (1 * u2_p - y3 * p_lens_front) / n_ref; // Refraction into glass
+                    
+                    const y4 = y3 + u3_p * CT; // Back surface
+                    const u4_p = (n_ref * u3_p - 0) / 1; // Refraction into air (Plano back)
+                    
+                    final_efl = -y1 / u4_p; // True system EFL
+                    
+                    // Store trace if this is the last iteration
+                    best_trace = { L12: L12_test, BFD_geom: bfd_geom, R_lens, d_lens: d_lens_img, D_lens, CT, bfd_final: -y4/u4_p };
+
+                    // Bisect: If EFL is too high (system too slow), we need more reduction.
+                    // More reduction means M2 must move CLOSER to M1 (dz more negative).
+                    if (final_efl > cfg.efl_target) {
+                        dz_high = dz;
+                    } else {
+                        dz_low = dz;
+                    }
+                }
+
+                // Finalize WF state
+                wf.dz = dz;
+                wf.L12 = best_trace.L12;
+                wf.EFL = final_efl;
+                wf.BFD_geom = best_trace.BFD_geom;
+                wf.R_lens = best_trace.R_lens;
+                wf.d_lens = best_trace.d_lens;
+                wf.D_lens = best_trace.D_lens;
+                wf.CT = best_trace.CT;
+                wf.BFD_final = best_trace.bfd_final;
+                wf.focal_shift = wf.BFD_final - (wf.BFD_geom - wf.d_lens - wf.CT); // shift relative to geometric exit
+
+                // Vignetting
                 const y_m_M2 = (D1/2) * (1 - wf.L12/f1);
                 const y_c_M2 = wf.L12 * Math.tan(Utils.degToRad(cfg.fov/2));
                 wf.D2_req = 2 * (Math.abs(y_m_M2) + Math.abs(y_c_M2));
                 wf.vignetted = wf.D2_req > D2;
 
-                // Lens Solve (Smythe Flattener Approach)
-                wf.n = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
-                const p_sum = (1 + Math.abs(wf.m)) / (Math.abs(wf.m) * f1);
-                wf.R_lens = -1 * (wf.n - 1) / (wf.n * p_sum) * 3.5; 
-
-                // Place lens front surface 70% down the BFD
-                const d_lens_img = 0.7 * wf.BFD_geom; 
-                wf.d_lens = d_lens_img;
-
-                // Calculate required Clear Aperture of Lens
-                const u_m_img = -(D1/2) / wf.EFL;
-                const y_m_lens = Math.abs(u_m_img * d_lens_img);
-                const h_img = Math.abs(wf.EFL) * Math.tan(Utils.degToRad(cfg.fov/2));
-                const y_c_lens = h_img - ((h_img / wf.BFD_geom) * d_lens_img);
-                
-                wf.D_lens = 2 * (y_m_lens + Math.abs(y_c_lens)) * 1.05;
-
-                // Dynamic Thickness Calculation
-                wf.CT = wf.D_lens * ct_ratio; // Uses the user-defined aspect ratio
-
                 const semidiam = wf.D_lens / 2;
                 const R_abs = Math.abs(wf.R_lens);
                 wf.sag = (semidiam < R_abs) ? R_abs - Math.sqrt(R_abs*R_abs - semidiam*semidiam) : semidiam;
                 wf.ET = wf.CT + wf.sag;
-                
-                // --- PARAXIAL FOCUS SHIFT CALCULATION ---
-                // 1. Refraction at Front Surface (Virtual Object s1)
-                const s1 = d_lens_img; 
-                const p1 = (wf.n - 1) / wf.R_lens; // Surface power (negative)
-                const s1_prime = wf.n / (p1 + (1 / s1)); 
-                
-                // 2. Transfer to Back Surface (Plano)
-                const s2 = s1_prime - wf.CT; 
-                
-                // 3. Refraction at Back Surface
-                const s2_prime = s2 / wf.n; 
-                
-                wf.BFD_final = (wf.BFD_geom - d_lens_img) + wf.CT + s2_prime;
-                wf.focal_shift = wf.BFD_final - wf.BFD_geom;
 
                 results.wf.push(wf);
             });
@@ -518,28 +531,75 @@ const app = (function() {
                 <tr><td class="row-header">Conic</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.K2,3)}</td></tr>
                 <tr><td class="row-header">Clear Semi-Diameter</td>
                     <td>${Utils.fmt(c1.D2/2,2)}</td>
-                    ${wfs.map(w => `<td class="${w.vignetted ? 'warn-text' : ''}">${Utils.fmt(w.D2_req/2,2)} ${w.vignetted ? '(Vignetted!)':''}</td>`).join('')}
+                    ${wfs.map(w => `<td class="${w.vignetted ? 'warn-text' : ''}">${Utils.fmt(w.D2_req/2,2)} ${w.vignetted ? '(Vignettes!)':''}</td>`).join('')}
                 </tr>
                 <tr><td class="row-header" style="color:var(--accent-orange);">M2 Shift (Δz) (mm)</td><td>0.000</td>${wfs.map(w => `<td style="color:var(--accent-orange);">${Utils.fmt(w.dz,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Thickness to Next (mm)</td><td>${Utils.fmt(c1.BFD,3)}</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_geom - w.d_lens, 3)}</td>`).join('')}</tr>
 
-                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 4: Field Flattener (Front)</td></tr>
-                <tr><td class="row-header">Radius (mm)</td><td>Infinity (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.R_lens,3)}</td>`).join('')}</tr>
-                <tr><td class="row-header">Thickness (CT) (mm)</td><td>0 (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 4: Aspheric Corrector (Front)</td></tr>
+                <tr><td class="row-header">Surface Type</td><td>-</td>${wfs.map(w => `<td style="color:var(--accent-green)">EVEN ASPHERE</td>`).join('')}</tr>
+                <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>${Utils.fmt(w.R_lens,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness (CT) (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Edge Thickness (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.ET,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Semi-Diameter (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.D_lens/2,2)}</td>`).join('')}</tr>
-                <tr><td class="row-header">Glass Material</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,3)})</td>`).join('')}</tr>
+                <tr><td class="row-header">Glass Material</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,4)})</td>`).join('')}</tr>
 
-                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 5: Field Flattener (Back)</td></tr>
-                <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>Infinity</td>`).join('')}</tr>
-                <tr><td class="row-header">Thickness to Image (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final - (w.BFD_geom - w.d_lens + w.CT), 3)}</td>`).join('')}</tr>
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 5: Aspheric Corrector (Back)</td></tr>
+                <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>Infinity (Plano)</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness to Image (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final, 3)}</td>`).join('')}</tr>
 
-                <tr class="section-row"><td colspan="${2 + wfs.length}">Optical Focus Properties</td></tr>
-                <tr><td class="row-header">True Final BFD (mm)</td><td>${Utils.fmt(c1.BFD,3)}</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final,3)}</td>`).join('')}</tr>
-                <tr><td class="row-header shift-text">Paraxial Focal Shift</td><td>0.000</td>${wfs.map(w => `<td class="shift-text">+${Utils.fmt(w.focal_shift,3)}</td>`).join('')}</tr>
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Zemax Export (Copy & Run ZPL)</td></tr>
+                <tr><td colspan="${2 + wfs.length}"><textarea readonly onclick="this.select()" style="width:100%; height:120px; background:#111; color:#a2b9bc; border:1px solid #333; font-family:monospace; padding:5px;">${generateZPL()}</textarea></td></tr>
             </tbody>
         `;
         document.getElementById('results-table').innerHTML = html;
+    }
+
+    function generateZPL() {
+        const c1 = results.c1;
+        const wfs = results.wf;
+        const D1 = c1.D1;
+        const L12 = -1 * c1.L12; 
+        const N_configs = wfs.length + 1;
+        
+        let zpl = `! Analytical Iterative Cassegrain Solution v4.2\n`;
+        zpl += `SETSYSTEM 0, 0, ${D1}\nWAVELENGTH 1, ${c1.wave/1000}\nUNITS 0\n\n`;
+        
+        zpl += `INSERTSURFACE 1\nINSERTSURFACE 2\nINSERTSURFACE 3\nINSERTSURFACE 4\nINSERTSURFACE 5\nINSERTSURFACE 6\n`;
+        zpl += `SURFACETYPE 2, STANDARD\nSETCRVT 2, ${1/c1.R1}\nSETCONI 2, -1.0\nSETTHIC 2, ${L12}\nSETGLAS 2, MIRROR\nSETSDIA 2, ${D1/2}\nCOMM 2, "M1"\n`;
+        zpl += `SURFACETYPE 3, STANDARD\nSETCRVT 3, ${1/c1.R2}\nSETCONI 3, ${c1.K2}\nSETTHIC 3, ${c1.BFD}\nSETGLAS 3, MIRROR\nSETSDIA 3, ${c1.D2/2}\nCOMM 3, "M2"\n`;
+        
+        zpl += `! Config 1 has no lens\nSURFACETYPE 4, EVENASPH\nSETTHIC 4, 0\nCOMM 4, "LENS_FRONT"\n`;
+        zpl += `SURFACETYPE 5, STANDARD\nSETTHIC 5, 0\nCOMM 5, "LENS_BACK"\nCOMM 6, "IMAGE"\n\n`;
+        
+        zpl += `INSERTMCO ${N_configs}\n`;
+        
+        zpl += `INSERTMCOPERAND 1, 0, "THIC", 2, 0, 0, 0\nSETMCOMONITOR 1, 1, ${L12}\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 1, ${i+2}, ${L12 + w.dz}\n`);
+
+        zpl += `INSERTMCOPERAND 2, 0, "THIC", 3, 0, 0, 0\nSETMCOMONITOR 2, 1, ${c1.BFD}\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 2, ${i+2}, ${w.BFD_geom - w.d_lens}\n`);
+
+        zpl += `INSERTMCOPERAND 3, 0, "WAVE", 1, 0, 0, 0\nSETMCOMONITOR 3, 1, ${c1.wave/1000}\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 3, ${i+2}, ${w.wave/1000}\n`);
+
+        zpl += `INSERTMCOPERAND 4, 0, "IGNR", 4, 0, 0, 0\nSETMCOMONITOR 4, 1, 1\n`; 
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 4, ${i+2}, 0\n`);
+
+        zpl += `INSERTMCOPERAND 5, 0, "IGNR", 5, 0, 0, 0\nSETMCOMONITOR 5, 1, 1\n`; 
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 5, ${i+2}, 0\n`);
+
+        zpl += `INSERTMCOPERAND 6, 0, "CRVT", 4, 0, 0, 0\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 6, ${i+2}, ${1/w.R_lens}\n`);
+
+        zpl += `INSERTMCOPERAND 7, 0, "THIC", 4, 0, 0, 0\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 7, ${i+2}, ${w.CT}\n`);
+
+        zpl += `INSERTMCOPERAND 8, 0, "THIC", 5, 0, 0, 0\n`;
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 8, ${i+2}, ${w.BFD_final}\n`);
+        
+        zpl += `! IMPORTANT: Set Surface 4 Conic (K) and 4th Order Term as Variables in Zemax\nUPDATE\n`;
+        return zpl;
     }
 
     // --- VISUALIZATION ---
@@ -567,15 +627,14 @@ const app = (function() {
             activeWF = results.wf.find(w => w.id === activeId);
             if(activeWF) {
                 L12 = activeWF.L12;
-                BFD = activeWF.BFD_final; // Draw to the TRUE focal plane
+                BFD = activeWF.BFD_geom - activeWF.d_lens + activeWF.CT + activeWF.BFD_final; // Approx total dist
             }
         }
 
         const M1_z = 0;
-        const M2_z = -L12;
+        const M2_z = -Math.abs(L12);
         const Img_z = M2_z + BFD;
 
-        // Draw Helper
         const map = (z,y) => ({ x: z, y: y }); 
 
         // M1
@@ -593,7 +652,6 @@ const app = (function() {
             const z_lens = M2_z + (activeWF.BFD_geom - activeWF.d_lens);
             const h = activeWF.D_lens / 2;
             const curve = activeWF.sag;
-            // Draw a proper plano-concave shape path instead of a rectangle for clarity
             const lensPath = `M ${z_lens + curve},${-h} Q ${z_lens},0 ${z_lens + curve},${h} L ${z_lens + activeWF.CT},${h} L ${z_lens + activeWF.CT},${-h} Z`;
             canvas.innerHTML += `<path d="${lensPath}" fill="rgba(46, 204, 113, 0.5)" stroke="#27ae60" vector-effect="non-scaling-stroke"/>`;
         }
@@ -601,16 +659,15 @@ const app = (function() {
         // Image Plane
         canvas.innerHTML += `<line x1="${Img_z}" y1="${-c1.D1/4}" x2="${Img_z}" y2="${c1.D1/4}" stroke="#bdc3c7" stroke-dasharray="5,5" vector-effect="non-scaling-stroke"/>`;
 
-        // Marginal Rays
+        // Rays
         const drawRay = (h_in) => {
-            const y_m2 = h_in * (1 - L12/c1.f1);
+            const y_m2 = h_in * (1 - Math.abs(L12)/c1.f1);
             const pts = `${M2_z - 500},${h_in} ${0},${h_in} ${M2_z},${y_m2} ${Img_z},0`;
             canvas.innerHTML += `<polyline points="${pts}" stroke="#f1c40f" fill="none" stroke-width="1.5" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
         };
         drawRay(c1.D1/2);
         drawRay(-c1.D1/2);
 
-        // Fit
         if(forceFit) {
             const pad = 150;
             view.x = M2_z - pad;
@@ -633,9 +690,7 @@ const app = (function() {
         view.x = cx - view.w/2; view.y = cy - view.h/2;
         updateViewBox();
     }
-
     function handleMouseDown(e) { view.drag = true; view.lx = e.clientX; view.ly = e.clientY; }
-    
     function handleMouseMove(e) {
         if (!view.drag) return;
         const svg = document.getElementById('optical-canvas');
@@ -645,12 +700,8 @@ const app = (function() {
         view.lx = e.clientX; view.ly = e.clientY;
         updateViewBox();
     }
-    
     function handleMouseUp() { view.drag = false; }
-    
-    function updateViewBox() {
-        document.getElementById('optical-canvas').setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
-    }
+    function updateViewBox() { document.getElementById('optical-canvas').setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
 
     // --- TEST CASE ---
     function loadTestCase() {
@@ -669,9 +720,7 @@ const app = (function() {
         renderConfigs(); 
     }
 
-    return { 
-        init, addConfig, removeConfig, updateCfg, drawSystem, loadTestCase, resetView: () => drawSystem(true), saveSession
-    };
+    return { init, addConfig, removeConfig, updateCfg, drawSystem, loadTestCase, resetView: () => drawSystem(true), saveSession };
 })();
 
 window.addEventListener('DOMContentLoaded', app.init);
