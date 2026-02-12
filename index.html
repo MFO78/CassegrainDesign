@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cassegrain Multi-Config Design Tool (Unified)</title>
-    <meta name="description" content="Analytical Cassegrain solver with iterative paraxial raytrace.">
+    <meta name="description" content="Analytical Cassegrain solver with deterministic hybrid trace.">
     <style>
         /* * PROFESSIONAL DARK THEME - OPTICAL ENGINEERING STANDARD */
         :root {
@@ -162,7 +162,7 @@
 <header>
     <div>
         <h1>Cassegrain Multi-Config Design Tool</h1>
-        <span class="subtitle">Iterative Paraxial Solver & Aspheric Corrector Matrix (v4.2)</span>
+        <span class="subtitle">Deterministic Hybrid Trace Solver (v5.0)</span>
     </div>
     <div class="btn-group" style="width: 400px; padding:0;">
         <button onclick="app.loadTestCase()">Load SMF Case</button>
@@ -298,7 +298,7 @@ const app = (function() {
             inputs: inputs.map(id => els[id].value),
             configs: configs
         };
-        localStorage.setItem('cassegrain_design_v4_2', JSON.stringify(state));
+        localStorage.setItem('cassegrain_design_v5', JSON.stringify(state));
         const btn = document.querySelector('.primary');
         const oldText = btn.innerText;
         btn.innerText = "Saved!";
@@ -307,7 +307,7 @@ const app = (function() {
     }
 
     function loadSession() {
-        const saved = localStorage.getItem('cassegrain_design_v4_2');
+        const saved = localStorage.getItem('cassegrain_design_v5');
         if (saved) {
             try {
                 const state = JSON.parse(saved);
@@ -332,7 +332,7 @@ const app = (function() {
                         <span style="color:#e74c3c; cursor:pointer; font-size:0.8rem;" onclick="app.removeConfig(${idx})">Remove</span>
                     </div>
                     <div class="input-group">
-                        <label>Target System EFL</label>
+                        <label>Target Mirror EFL</label>
                         <input type="number" onchange="app.updateCfg(${idx}, 'efl_target', this.value)" value="${cfg.efl_target}"><span class="unit">mm</span>
                     </div>
                     <div class="input-group" style="margin-top:6px;">
@@ -370,7 +370,7 @@ const app = (function() {
         solveSystem();
     }
 
-    // --- ITERATIVE PARAXIAL RAYTRACE ---
+    // --- HYBRID PARAXIAL SOLVER ---
     function solveSystem() {
         try {
             // 1. Parse Inputs
@@ -402,91 +402,59 @@ const app = (function() {
             results.c1 = { EFL, f1, m, D1, R1, K1: -1.0, D2, L12, BFD, R2, K2, wave: wave1, fov: fov1 };
             results.wf = [];
 
-            // 2. Wide Field Iterations (Finding dz to hit Target EFL WITH lens)
+            // 2. Wide Field Iterations (Deterministic Solve)
             configs.forEach((cfg, idx) => {
                 const wf = { ...cfg, id: idx+2 };
-                const n_ref = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
-                wf.n = n_ref;
-
-                // Binary Search for dz to achieve target EFL
-                let dz_low = -400; 
-                let dz_high = 100;
-                let dz = 0;
-                let final_efl = 0;
-                let best_trace = {};
-
-                for (let iter = 0; iter < 30; iter++) {
-                    dz = (dz_low + dz_high) / 2;
-                    let L12_test = L12 + dz;
-                    
-                    // Mirror Trace
-                    const y1 = D1 / 2;
-                    const u1_p = -y1 / f1;
-                    const y2 = y1 + u1_p * L12_test;
-                    const u2_p = u1_p - (2 * y2 / R2); // R2 is negative
-                    
-                    const bfd_geom = -y2 / u2_p; // Distance from M2 to geometric focus
-                    const m_mirrors = bfd_geom / (f1 - L12_test);
-                    
-                    // Lens Design
-                    const p_sum = (1 + Math.abs(m_mirrors)) / (Math.abs(m_mirrors) * f1);
-                    const R_lens = -1 * (n_ref - 1) / (n_ref * p_sum) * 3.5; 
-                    const d_lens_img = 0.7 * bfd_geom; 
-                    const t_air = bfd_geom - d_lens_img;
-                    
-                    // Lens Diameter & Thickness
-                    const efl_mirrors = -y1 / u2_p;
-                    const u_m_img = -y1 / efl_mirrors;
-                    const y_m_lens = Math.abs(u_m_img * d_lens_img);
-                    const h_img = Math.abs(efl_mirrors) * Math.tan(Utils.degToRad(cfg.fov/2));
-                    const y_c_lens = h_img - ((h_img / bfd_geom) * d_lens_img);
-                    const D_lens = 2 * (y_m_lens + Math.abs(y_c_lens)) * 1.05;
-                    const CT = D_lens * ct_ratio;
-
-                    // Lens Trace
-                    const y3 = y2 + u2_p * t_air; // Front surface
-                    const p_lens_front = (n_ref - 1) / R_lens;
-                    const u3_p = (1 * u2_p - y3 * p_lens_front) / n_ref; // Refraction into glass
-                    
-                    const y4 = y3 + u3_p * CT; // Back surface
-                    const u4_p = (n_ref * u3_p - 0) / 1; // Refraction into air (Plano back)
-                    
-                    final_efl = -y1 / u4_p; // True system EFL
-                    
-                    // Store trace if this is the last iteration
-                    best_trace = { L12: L12_test, BFD_geom: bfd_geom, R_lens, d_lens: d_lens_img, D_lens, CT, bfd_final: -y4/u4_p };
-
-                    // Bisect: If EFL is too high (system too slow), we need more reduction.
-                    // More reduction means M2 must move CLOSER to M1 (dz more negative).
-                    if (final_efl > cfg.efl_target) {
-                        dz_high = dz;
-                    } else {
-                        dz_low = dz;
-                    }
-                }
-
-                // Finalize WF state
-                wf.dz = dz;
-                wf.L12 = best_trace.L12;
-                wf.EFL = final_efl;
-                wf.BFD_geom = best_trace.BFD_geom;
-                wf.R_lens = best_trace.R_lens;
-                wf.d_lens = best_trace.d_lens;
-                wf.D_lens = best_trace.D_lens;
-                wf.CT = best_trace.CT;
-                wf.BFD_final = best_trace.bfd_final;
-                wf.focal_shift = wf.BFD_final - (wf.BFD_geom - wf.d_lens - wf.CT); // shift relative to geometric exit
-
-                // Vignetting
-                const y_m_M2 = (D1/2) * (1 - wf.L12/f1);
-                const y_c_M2 = wf.L12 * Math.tan(Utils.degToRad(cfg.fov/2));
-                wf.D2_req = 2 * (Math.abs(y_m_M2) + Math.abs(y_c_M2));
-                wf.vignetted = wf.D2_req > D2;
-
+                
+                wf.EFL_target = cfg.efl_target;
+                wf.m_mirrors = wf.EFL_target / f1;
+                
+                // 2A. Solve Mirrors to hit EFL_target precisely
+                const u_new = f2 * (1 - wf.m_mirrors) / wf.m_mirrors;
+                wf.L12 = f1 - u_new;
+                wf.dz = wf.L12 - L12;
+                wf.BFD_geom = wf.m_mirrors * u_new;
+                
+                // 2B. Lens Geometry Configuration
+                wf.d_lens = 15.0; // Fixed physical clearance from focus ensures stability
+                const t_air = wf.BFD_geom - wf.d_lens;
+                
+                wf.n = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
+                const p_sum = (1 + Math.abs(wf.m_mirrors)) / (Math.abs(wf.m_mirrors) * f1);
+                wf.R_lens = -1 * (wf.n - 1) / (wf.n * p_sum) * 3.5; 
+                
+                const u_m_img = -(D1/2) / wf.EFL_target;
+                const y_m_lens = Math.abs(u_m_img * wf.d_lens);
+                const h_img = Math.abs(wf.EFL_target) * Math.tan(Utils.degToRad(cfg.fov/2));
+                const y_c_lens = Math.abs(h_img - ((h_img / wf.BFD_geom) * wf.d_lens)); 
+                wf.D_lens = 2 * (y_m_lens + y_c_lens) * 1.05;
+                
+                wf.CT = wf.D_lens * ct_ratio;
                 const semidiam = wf.D_lens / 2;
                 const R_abs = Math.abs(wf.R_lens);
                 wf.sag = (semidiam < R_abs) ? R_abs - Math.sqrt(R_abs*R_abs - semidiam*semidiam) : semidiam;
                 wf.ET = wf.CT + wf.sag;
+
+                // 2C. Exact Paraxial Trace for True Lens Impact
+                const y1 = D1 / 2;
+                const u2_p = -y1 / wf.EFL_target; // Slope after M2
+                const y3 = -u2_p * wf.d_lens;     // Height at Lens Front
+                
+                const p1 = (wf.n - 1) / wf.R_lens; // Negative power
+                const u3_p = (u2_p - y3 * p1) / wf.n; // Refraction into glass
+                const y4 = y3 + u3_p * wf.CT;
+                const u4_p = wf.n * u3_p;         // Refraction into air (plano)
+                
+                wf.EFL_true = -y1 / u4_p;
+                const back_focal_length = -y4 / u4_p;
+                wf.BFD_final = t_air + wf.CT + back_focal_length;
+                wf.focal_shift = wf.BFD_final - wf.BFD_geom;
+
+                // Vignetting
+                const y_m_M2 = y1 * (1 - wf.L12/f1);
+                const y_c_M2 = wf.L12 * Math.tan(Utils.degToRad(cfg.fov/2));
+                wf.D2_req = 2 * (Math.abs(y_m_M2) + Math.abs(y_c_M2));
+                wf.vignetted = wf.D2_req > D2;
 
                 results.wf.push(wf);
             });
@@ -515,8 +483,9 @@ const app = (function() {
             </thead>
             <tbody>
                 <tr class="section-row"><td colspan="${2 + wfs.length}">System Specifications</td></tr>
-                <tr><td class="row-header">System EFL (mm)</td><td>${Utils.fmt(c1.EFL,1)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL,1)}</td>`).join('')}</tr>
-                <tr><td class="row-header">System F/#</td><td>${Utils.fmt(c1.EFL/c1.D1,2)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL/c1.D1,2)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Target Mirror EFL (mm)</td><td>${Utils.fmt(c1.EFL,1)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL_target,1)}</td>`).join('')}</tr>
+                <tr><td class="row-header shift-text">True Final EFL (Lensed)</td><td class="shift-text">${Utils.fmt(c1.EFL,1)}</td>${wfs.map(w => `<td class="shift-text">${Utils.fmt(w.EFL_true,1)}</td>`).join('')}</tr>
+                <tr><td class="row-header">System F/#</td><td>${Utils.fmt(c1.EFL/c1.D1,2)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL_true/c1.D1,2)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Wavelength (nm)</td><td>${c1.wave}</td>${wfs.map(w => `<td>${w.wave}</td>`).join('')}</tr>
                 <tr><td class="row-header">Field of View (Deg)</td><td>${c1.fov}</td>${wfs.map(w => `<td>${w.fov}</td>`).join('')}</tr>
                 
@@ -538,15 +507,19 @@ const app = (function() {
 
                 <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 4: Aspheric Corrector (Front)</td></tr>
                 <tr><td class="row-header">Surface Type</td><td>-</td>${wfs.map(w => `<td style="color:var(--accent-green)">EVEN ASPHERE</td>`).join('')}</tr>
-                <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>${Utils.fmt(w.R_lens,3)}</td>`).join('')}</tr>
-                <tr><td class="row-header">Thickness (CT) (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Radius (mm)</td><td>Infinity (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.R_lens,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness (CT) (mm)</td><td>0 (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Edge Thickness (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.ET,3)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Semi-Diameter (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.D_lens/2,2)}</td>`).join('')}</tr>
                 <tr><td class="row-header">Glass Material</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,4)})</td>`).join('')}</tr>
 
                 <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 5: Aspheric Corrector (Back)</td></tr>
                 <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>Infinity (Plano)</td>`).join('')}</tr>
-                <tr><td class="row-header">Thickness to Image (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final, 3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness to Image (mm)</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final - (w.BFD_geom - w.d_lens + w.CT), 3)}</td>`).join('')}</tr>
+
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Optical Focus Properties</td></tr>
+                <tr><td class="row-header">True Final BFD (mm)</td><td>${Utils.fmt(c1.BFD,3)}</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD_final,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header shift-text">Paraxial Focal Shift</td><td>0.000</td>${wfs.map(w => `<td class="shift-text">+${Utils.fmt(w.focal_shift,3)}</td>`).join('')}</tr>
 
                 <tr class="section-row"><td colspan="${2 + wfs.length}">Zemax Export (Copy & Run ZPL)</td></tr>
                 <tr><td colspan="${2 + wfs.length}"><textarea readonly onclick="this.select()" style="width:100%; height:120px; background:#111; color:#a2b9bc; border:1px solid #333; font-family:monospace; padding:5px;">${generateZPL()}</textarea></td></tr>
@@ -562,7 +535,7 @@ const app = (function() {
         const L12 = -1 * c1.L12; 
         const N_configs = wfs.length + 1;
         
-        let zpl = `! Analytical Iterative Cassegrain Solution v4.2\n`;
+        let zpl = `! Analytical Cassegrain Solution v5.0\n`;
         zpl += `SETSYSTEM 0, 0, ${D1}\nWAVELENGTH 1, ${c1.wave/1000}\nUNITS 0\n\n`;
         
         zpl += `INSERTSURFACE 1\nINSERTSURFACE 2\nINSERTSURFACE 3\nINSERTSURFACE 4\nINSERTSURFACE 5\nINSERTSURFACE 6\n`;
@@ -596,7 +569,7 @@ const app = (function() {
         wfs.forEach((w, i) => zpl += `SETMCOMONITOR 7, ${i+2}, ${w.CT}\n`);
 
         zpl += `INSERTMCOPERAND 8, 0, "THIC", 5, 0, 0, 0\n`;
-        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 8, ${i+2}, ${w.BFD_final}\n`);
+        wfs.forEach((w, i) => zpl += `SETMCOMONITOR 8, ${i+2}, ${w.BFD_final - (w.BFD_geom - w.d_lens + w.CT)}\n`);
         
         zpl += `! IMPORTANT: Set Surface 4 Conic (K) and 4th Order Term as Variables in Zemax\nUPDATE\n`;
         return zpl;
@@ -627,15 +600,13 @@ const app = (function() {
             activeWF = results.wf.find(w => w.id === activeId);
             if(activeWF) {
                 L12 = activeWF.L12;
-                BFD = activeWF.BFD_geom - activeWF.d_lens + activeWF.CT + activeWF.BFD_final; // Approx total dist
+                BFD = activeWF.BFD_final; 
             }
         }
 
         const M1_z = 0;
         const M2_z = -Math.abs(L12);
         const Img_z = M2_z + BFD;
-
-        const map = (z,y) => ({ x: z, y: y }); 
 
         // M1
         const R1 = Math.abs(c1.R1);
@@ -727,5 +698,3 @@ window.addEventListener('DOMContentLoaded', app.init);
 </script>
 </body>
 </html>
-
-
