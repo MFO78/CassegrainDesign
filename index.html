@@ -3,22 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cassegrain Multi-Config Design Tool (Field Driven)</title>
-    <meta name="description" content="Field-driven optical design calculator for Zemax OpticStudio. Calculates apertures based on FoV requirements.">
+    <title>Cassegrain Multi-Config Design Tool (Unified)</title>
+    <meta name="description" content="Analytical Cassegrain solver with field flatteners.">
     <style>
         /* * PROFESSIONAL DARK THEME - OPTICAL ENGINEERING STANDARD */
         :root {
-            --bg-dark: #2c3e50;
-            --bg-panel: #34495e;
+            --bg-dark: #1e272e;
+            --bg-panel: #2c3e50;
             --text-light: #ecf0f1;
             --accent-blue: #3498db;
             --accent-orange: #e67e22;
-            --accent-purple: #9b59b6;
-            --accent-green: #27ae60;
-            --accent-red: #c0392b;
-            --input-bg: #ffffff;
-            --input-text: #2c3e50;
-            --border-color: #7f8c8d;
+            --accent-red: #e74c3c;
+            --accent-green: #2ecc71;
+            --input-bg: #34495e;
+            --input-border: #7f8c8d;
         }
 
         * { box-sizing: border-box; }
@@ -28,122 +26,133 @@
             background-color: var(--bg-dark);
             color: var(--text-light);
             margin: 0;
-            padding: 0;
-            height: 100vh;
             display: flex;
             flex-direction: column;
+            height: 100vh;
             overflow: hidden;
         }
 
-        /* HEADER */
         header {
-            background-color: #1a252f;
-            padding: 10px 20px;
+            background-color: #151b22;
+            padding: 12px 20px;
             border-bottom: 2px solid var(--accent-blue);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-shrink: 0;
         }
-        h1 { margin: 0; font-size: 1.2rem; font-weight: 600; }
-        .subtitle { font-size: 0.8rem; opacity: 0.8; margin-left: 10px; font-weight: 300; }
+        
+        h1 { margin: 0; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.5px; }
 
-        /* LAYOUT */
         .main-container {
             display: flex;
             flex: 1;
             overflow: hidden;
         }
 
-        /* LEFT PANEL - INPUTS */
-        .left-panel {
-            width: 40%;
+        /* SIDEBAR (INPUTS) */
+        .sidebar {
+            width: 320px;
             background-color: var(--bg-panel);
+            border-right: 1px solid var(--input-border);
             overflow-y: auto;
-            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .section-header {
+            background-color: #1a252f;
+            padding: 10px 15px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+            border-bottom: 1px solid var(--input-border);
+            border-top: 1px solid var(--input-border);
+            margin-top: 10px;
+        }
+        .section-header:first-child { margin-top: 0; border-top: none; }
+
+        .input-grid {
             padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 12px;
         }
 
-        /* RIGHT PANEL - RESULTS */
-        .right-panel {
-            width: 60%;
-            background-color: var(--bg-dark);
+        .input-group { position: relative; }
+        label { font-size: 0.8rem; color: #bdc3c7; margin-bottom: 4px; display: block; }
+        input[type="number"], input[type="text"], select {
+            width: 100%;
+            padding: 6px 8px;
+            background-color: var(--input-bg);
+            border: 1px solid var(--input-border);
+            color: white;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9rem;
+        }
+        input:focus, select:focus { outline: none; border-color: var(--accent-blue); }
+        .unit { position: absolute; right: 8px; top: 22px; font-size: 0.75rem; color: #95a5a6; pointer-events: none; }
+
+        .config-card {
+            background-color: #34495e;
+            border-left: 3px solid var(--accent-orange);
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .btn-group { display: flex; gap: 8px; padding: 0 15px 15px 15px; }
+        button {
+            flex: 1; padding: 6px; background-color: #1a252f; color: white;
+            border: 1px solid var(--input-border); border-radius: 3px; cursor: pointer;
+            font-size: 0.8rem; transition: 0.2s;
+        }
+        button:hover { background-color: var(--accent-blue); border-color: var(--accent-blue); }
+
+        /* MAIN AREA (TABLE + SVG) */
+        .workspace {
+            flex: 1;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            background-color: var(--bg-dark);
         }
 
-        /* ACCORDION STYLES */
-        details {
-            background-color: rgba(0,0,0,0.2);
-            border-radius: 4px;
-            margin-bottom: 10px;
+        /* UNIFIED TABLE */
+        .table-container {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            border-bottom: 1px solid var(--input-border);
         }
-        summary {
-            padding: 10px;
-            cursor: pointer;
-            font-weight: 600;
-            user-select: none;
-            background-color: rgba(255,255,255,0.05);
-            border-radius: 4px;
-        }
-        summary:hover { background-color: rgba(255,255,255,0.1); }
-        .section-content { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        
-        /* INPUTS */
-        label { font-size: 0.85rem; display: block; margin-bottom: 4px; color: #bdc3c7; }
-        input[type="number"], input[type="text"], select {
+        table {
             width: 100%;
-            padding: 6px;
-            border-radius: 3px;
-            border: 1px solid transparent;
-            background-color: var(--input-bg);
-            color: var(--input-text);
-            font-family: 'Consolas', monospace;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            background-color: var(--bg-panel);
+            border-radius: 4px;
+            overflow: hidden;
         }
-        input:focus { outline: none; border-color: var(--accent-blue); }
-        .input-group { position: relative; }
-        .unit { position: absolute; right: 25px; top: 6px; color: #7f8c8d; font-size: 0.8rem; pointer-events: none; }
-        
-        /* CONFIG MANAGER */
-        .config-row { background: rgba(0,0,0,0.3); padding: 10px; margin-bottom: 5px; border-left: 4px solid #777; }
-        .config-row.c1 { border-left-color: var(--accent-blue); }
-        .config-row.c2 { border-left-color: var(--accent-orange); }
-
-        /* TABS */
-        .tabs-header { display: flex; background-color: #1a252f; overflow-x: auto; }
-        .tab-btn { padding: 10px 20px; background: none; border: none; color: #95a5a6; cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; }
-        .tab-btn.active { color: white; border-bottom-color: var(--accent-blue); background-color: rgba(255,255,255,0.05); }
-        .tab-content { padding: 20px; overflow-y: auto; flex: 1; display: none; }
-        .tab-content.active { display: block; }
-
-        /* TABLES */
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 20px; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #444; }
-        th { background-color: rgba(0,0,0,0.3); color: var(--accent-blue); }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #1e272e; }
+        th { background-color: #1a252f; color: var(--accent-blue); position: sticky; top: 0; }
         td { font-family: 'Consolas', monospace; }
-        tr:nth-child(even) { background-color: rgba(255,255,255,0.02); }
+        .row-header { font-weight: bold; color: #bdc3c7; width: 200px; }
+        .section-row td { background-color: #151b22; color: var(--accent-orange); font-weight: bold; text-transform: uppercase; font-size: 0.75rem; padding-top: 15px;}
+        .warn-text { color: var(--accent-red); font-weight: bold; }
 
-        /* VISUALIZATION */
-        #vis-container { height: 300px; background: #222; border-bottom: 1px solid #444; position: relative; overflow: hidden; }
+        /* SVG CHART */
+        .chart-container {
+            height: 350px;
+            position: relative;
+            background-color: #151b22;
+        }
         svg { width: 100%; height: 100%; cursor: grab; }
         svg:active { cursor: grabbing; }
-
-        /* FOOTER */
-        footer { padding: 10px; background-color: #1a252f; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid #444; }
-        button { padding: 6px 12px; background-color: var(--bg-panel); color: white; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
-        button:hover { background-color: #465f75; }
-        button.primary { background-color: var(--accent-blue); border-color: var(--accent-blue); }
-
-        /* MODAL */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-content { background: var(--bg-panel); padding: 20px; border-radius: 5px; width: 600px; max-width: 90%; max-height: 90vh; overflow-y: auto; }
-        textarea { width: 100%; height: 150px; background: #222; color: #eee; border: 1px solid #555; font-family: monospace; }
+        .chart-overlay {
+            position: absolute; bottom: 10px; right: 10px;
+            background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 4px;
+        }
         
-        @media (max-width: 1024px) { .main-container { flex-direction: column; overflow-y: auto; } .left-panel, .right-panel { width: 100%; } }
     </style>
 </head>
 <body>
@@ -151,100 +160,76 @@
 <header>
     <div>
         <h1>Cassegrain Multi-Config Design Tool</h1>
-        <span class="subtitle">v3.5 | Zemax Parameter Extraction</span>
+        <span class="subtitle">Unified Analytical Solver & Zemax Prescription</span>
     </div>
-    <div id="status-indicator" style="font-size: 0.8rem; color: var(--accent-green);">Ready</div>
+    <div class="btn-group" style="width: 300px; padding:0;">
+        <button onclick="app.loadTestCase()">Load SMF Test Case</button>
+        <button onclick="app.resetView()">Fit Chart</button>
+    </div>
 </header>
 
 <div class="main-container">
-    <!-- LEFT PANEL -->
-    <div class="left-panel">
-        
-        <details open>
-            <summary>1. System Parameters (Nominal)</summary>
-            <div class="section-content">
-                <div class="input-group">
-                    <label>Aperture D1 (mm)</label>
-                    <input type="number" id="in_D1" value="600">
-                </div>
-                <div class="input-group">
-                    <label>Primary F-Number</label>
-                    <input type="number" id="in_F1_num" step="0.1" value="3.0">
-                    <div class="unit">F/#</div>
-                </div>
-                <div class="input-group">
-                    <label>System Magnification</label>
-                    <input type="number" id="in_m" step="0.1" value="3.0">
-                    <div class="unit">M</div>
-                </div>
-                <div class="input-group">
-                    <label>Back Focal Dist (BFD)</label>
-                    <input type="number" id="in_BFD1" value="150">
-                    <div class="unit">mm</div>
-                </div>
-                <div class="input-group">
-                    <label>Nominal FoV (Deg)</label>
-                    <input type="number" id="in_fov_c1" step="0.001" value="0.057">
-                    <div class="unit">Deg</div>
-                </div>
-                <div class="input-group">
-                    <label>Nominal Wave (nm)</label>
-                    <input type="number" id="in_lambda_0" value="1055">
-                    <div class="unit">nm</div>
-                </div>
-                <div class="input-group">
-                    <label>Configurations</label>
-                    <input type="number" id="in_N_config" min="3" max="10" value="3">
-                </div>
+    
+    <!-- LEFT SIDEBAR: INPUTS -->
+    <div class="sidebar">
+        <div class="section-header">NOMINAL SYSTEM (Config 1)</div>
+        <div class="input-grid">
+            <div class="input-group">
+                <label>Primary Aperture (D1)</label>
+                <input type="number" id="in_D1" value="600"><span class="unit">mm</span>
             </div>
-        </details>
-
-        <details open id="config-container-details">
-            <summary>2. Wide Field Configurations</summary>
-            <div id="config-list" style="padding: 10px;"></div>
-            <div style="padding:10px; display:flex; gap:10px;">
-                <button onclick="app.addConfig()" style="font-size:0.8rem;">+ Add Config</button>
-                <button onclick="app.removeConfig()" style="font-size:0.8rem;">- Remove Last</button>
+            <div class="input-group">
+                <label>System EFL (Nominal)</label>
+                <input type="number" id="in_EFL" value="3600"><span class="unit">mm</span>
             </div>
-        </details>
-    </div>
-
-    <!-- RIGHT PANEL -->
-    <div class="right-panel">
-        <div id="vis-container">
-            <svg id="optical-canvas"></svg>
-            <div style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 4px; font-size: 0.8rem; pointer-events: auto;">
-                <label style="display:inline; margin-right:5px;">Show Config:</label>
-                <select id="vis-selector" style="width: auto; padding: 2px;" onchange="app.drawSystem(true)">
-                    <option value="1">Config 1 (Nominal)</option>
-                </select>
-                <button onclick="app.resetView()" style="margin-left:5px; padding:2px 6px; font-size:0.8rem;">Fit View</button>
+            <div class="input-group">
+                <label>Primary Radius (R1)</label>
+                <input type="number" id="in_R1" value="-1800" step="10"><span class="unit">mm</span>
             </div>
-            <div style="position: absolute; top: 10px; left: 10px; color: #7f8c8d; font-size: 0.7rem; pointer-events: none;">
-                Scroll to Zoom • Drag to Pan
+            <div class="input-group">
+                <label>Secondary Obstruction (&epsilon;)</label>
+                <input type="number" id="in_obs" value="0.30" step="0.01"><span class="unit">D2/D1</span>
+            </div>
+            <div class="input-group">
+                <label>Nominal FoV</label>
+                <input type="number" id="in_fov1" value="0.057" step="0.01"><span class="unit">deg</span>
+            </div>
+            <div class="input-group">
+                <label>Design Wavelength</label>
+                <input type="number" id="in_wave1" value="1055"><span class="unit">nm</span>
             </div>
         </div>
 
-        <div class="tabs-header" id="tabs-header"></div>
-        <div id="tabs-content-container" style="flex: 1; overflow-y: auto;"></div>
+        <div class="section-header" style="display:flex; justify-content:space-between;">
+            <span>WIDE-FIELD MODES</span>
+            <span style="cursor:pointer;" onclick="app.addConfig()">[+] Add</span>
+        </div>
+        <div class="input-grid" id="config-list" style="padding-top:5px;">
+            <!-- Dynamic configurations injected here -->
+        </div>
     </div>
-</div>
 
-<footer>
-    <button onclick="app.loadTestCase()">Load Test Case</button>
-    <button onclick="app.resetDefaults()">Reset</button>
-    <div style="flex:1"></div>
-    <button onclick="app.showHelp()">Help / Documentation</button>
-    <button class="primary" onclick="app.saveSession()">Save Session</button>
-</footer>
+    <!-- RIGHT WORKSPACE: TABLE & CHART -->
+    <div class="workspace">
+        
+        <!-- UNIFIED DATA MATRIX -->
+        <div class="table-container">
+            <table id="results-table">
+                <!-- Generated by JS -->
+            </table>
+        </div>
 
-<!-- HELP MODAL -->
-<div id="modal-help" class="modal">
-    <div class="modal-content">
-        <h2>Design Methodology v3.5</h2>
-        <p><strong>Global Aperture Sizing:</strong> The Secondary Mirror (M2) diameter is now calculated to satisfy the field-of-view requirements of <em>all</em> active configurations.</p>
-        <p><strong>Zemax Integration:</strong> The Zemax Export tab explicitly lists the critical Primary Mirror (M1) parameters (Radius, Conic, Semi-Diameter) for direct validation alongside the auto-generated ZPL macro.</p>
-        <button onclick="document.getElementById('modal-help').style.display='none'">Close</button>
+        <!-- INTERACTIVE CHART -->
+        <div class="chart-container">
+            <svg id="optical-canvas"></svg>
+            <div class="chart-overlay">
+                <label style="font-size:0.8rem; color:#bdc3c7;">Render:</label>
+                <select id="vis-selector" style="font-size:0.8rem; padding:2px;" onchange="app.drawSystem(true)">
+                    <!-- Generated by JS -->
+                </select>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -252,567 +237,363 @@
 "use strict";
 
 const MATERIALS = {
-    "SILICA": { n: 1.46008, Vd: 67.8, B: [0.6961663, 0.4079426, 0.8974794], C: [0.004679148, 0.01351206, 97.93400] }, 
-    "N-BK7":  { n: 1.51680, Vd: 64.17, B: [1.03961212, 0.231792344, 1.01046945], C: [0.00600069867, 0.0200179144, 103.560653] },
-    "N-SF11": { n: 1.78472, Vd: 25.76, B: [1.73759695, 0.313747346, 1.89878101], C: [0.013188707, 0.0623068339, 155.23629] },
-    "N-SF5":  { n: 1.67270, Vd: 32.21, B: [1.52481889, 0.187085527, 1.42729015], C: [0.011254756, 0.0588995392, 129.141675] },
-    "CALCIUM_FLUORIDE": { n: 1.43385, Vd: 95.1, B: [0.5675888, 0.4710914, 3.8484723], C: [0.00252643, 0.01007833, 1200.5560] },
-    "N-LAK22": { n: 1.65113, Vd: 55.89, B: [1.14229781, 0.535130325, 1.06649257], C: [0.0058272986, 0.0195536551, 91.698075] }
+    "SILICA": { n: 1.46008, B: [0.6961663, 0.4079426, 0.8974794], C: [0.004679148, 0.01351206, 97.93400] }, 
+    "N-BK7":  { n: 1.51680, B: [1.03961212, 0.231792344, 1.01046945], C: [0.00600069867, 0.0200179144, 103.560653] },
+    "N-SF11": { n: 1.78472, B: [1.73759695, 0.313747346, 1.89878101], C: [0.013188707, 0.0623068339, 155.23629] }
 };
 
 const Utils = {
     getRefractiveIndex: (matName, lambda_nm) => {
         if (!MATERIALS[matName]) return 1.5;
-        // Sellmeier: lambda in microns
         const L = lambda_nm / 1000.0; 
         const L2 = L * L;
         const m = MATERIALS[matName];
-        if(!m.B) return m.n; // Fallback if no coeffs
+        if(!m.B) return m.n; 
         const n2 = 1 + (m.B[0]*L2)/(L2-m.C[0]) + (m.B[1]*L2)/(L2-m.C[1]) + (m.B[2]*L2)/(L2-m.C[2]);
         return Math.sqrt(n2);
     },
-    fmt: (num, dec=3) => num !== undefined ? Number(num).toFixed(dec) : "-",
+    fmt: (num, dec=3) => num !== undefined && !isNaN(num) ? Number(num).toFixed(dec) : "N/A",
     degToRad: (deg) => deg * (Math.PI/180)
 };
 
 const app = (function() {
     
-    let state = { configs: [] };
-    let results = {};
-    // View State for Pan/Zoom
-    let view = { x: -2000, y: -500, w: 3000, h: 1000, dragging: false, lastX: 0, lastY: 0 };
+    let configs = [];
+    let results = { c1: {}, wf: [] };
+    let view = { x: -1000, y: -400, w: 2000, h: 800, drag: false, lx: 0, ly: 0 };
     
     const els = {};
-    const inputs = ['N_config', 'lambda_0', 'D1', 'F1_num', 'm', 'BFD1', 'fov_c1'];
+    const inputs = ['D1', 'EFL', 'R1', 'obs', 'fov1', 'wave1'];
 
     function init() {
-        inputs.forEach(id => els[id] = document.getElementById('in_' + id));
-        inputs.forEach(id => els[id].addEventListener('input', debounce(calculateAll, 300)));
+        inputs.forEach(id => {
+            els[id] = document.getElementById('in_' + id);
+            els[id].addEventListener('input', debounce(solveSystem, 250));
+        });
         
-        // VISUALIZATION EVENTS
         const svg = document.getElementById('optical-canvas');
         svg.addEventListener('wheel', handleZoom, { passive: false });
         svg.addEventListener('mousedown', handleMouseDown);
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
         
-        if(state.configs.length === 0) updateConfigCount(3);
-        calculateAll();
-        loadSession();
+        loadTestCase();
     }
 
-    function debounce(func, wait) {
-        let timeout;
-        return function(...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
+    function debounce(fn, ms) {
+        let t; return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
     }
 
-    // --- INTERACTIVE VISUALIZATION LOGIC ---
-    function handleZoom(e) {
-        e.preventDefault();
-        const zoomFactor = 1.1;
-        const dir = e.deltaY > 0 ? 1 : -1;
-        const factor = dir > 0 ? zoomFactor : 1/zoomFactor;
-        const cx = view.x + view.w/2;
-        const cy = view.y + view.h/2;
-        view.w *= factor;
-        view.h *= factor;
-        view.x = cx - view.w/2;
-        view.y = cy - view.h/2;
-        updateViewBox();
-    }
-
-    function handleMouseDown(e) {
-        view.dragging = true;
-        view.lastX = e.clientX;
-        view.lastY = e.clientY;
-        document.getElementById('optical-canvas').style.cursor = 'grabbing';
-    }
-
-    function handleMouseMove(e) {
-        if (!view.dragging) return;
-        const dx_px = e.clientX - view.lastX;
-        const dy_px = e.clientY - view.lastY;
-        const svg = document.getElementById('optical-canvas');
-        const rect = svg.getBoundingClientRect();
-        const scaleX = view.w / rect.width;
-        const scaleY = view.h / rect.height;
-        view.x -= dx_px * scaleX;
-        view.y -= dy_px * scaleY; 
-        view.lastX = e.clientX;
-        view.lastY = e.clientY;
-        updateViewBox();
-    }
-
-    function handleMouseUp() {
-        view.dragging = false;
-        const svg = document.getElementById('optical-canvas');
-        if(svg) svg.style.cursor = 'grab';
-    }
-
-    function updateViewBox() {
-        const svg = document.getElementById('optical-canvas');
-        if(svg) svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
-    }
-
-    function resetView() {
-        drawSystem(true); // force fit
-    }
-
-    // --- CONFIG MANAGER ---
-    function updateConfigCount(n) {
-        n = Math.max(3, Math.min(10, n));
-        els.N_config.value = n;
-        const currentLen = state.configs.length;
-        const targetLen = n - 1; 
-        
-        if (targetLen > currentLen) {
-            for(let i=currentLen; i<targetLen; i++) {
-                state.configs.push({
-                    id: i+2,
-                    label: `Wide Field ${String.fromCharCode(65+i)}`,
-                    delta_z: -50,
-                    fov: 1.0,
-                    fov_unit: 'deg',
-                    wavelength: 550,
-                    material: 'SILICA',
-                    enabled: true
-                });
-            }
-        } else if (targetLen < currentLen) {
-            state.configs.length = targetLen;
-        }
-        renderConfigInputs();
-        calculateAll();
-    }
-
-    function addConfig() { updateConfigCount(parseInt(els.N_config.value) + 1); }
-    function removeConfig() { updateConfigCount(parseInt(els.N_config.value) - 1); }
-
-    function renderConfigInputs() {
+    // --- CONFIG MANAGEMENT ---
+    function renderConfigs() {
         const container = document.getElementById('config-list');
         container.innerHTML = '';
-        const visSel = document.getElementById('vis-selector');
-        visSel.innerHTML = '<option value="1">Config 1 (Nominal)</option>';
-
-        state.configs.forEach((cfg, idx) => {
-            const div = document.createElement('div');
-            div.className = `config-row ${(idx===0)?'c2':'c3'}`;
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; cursor:pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'grid' : 'none'">
-                    <strong>Config ${cfg.id}: ${cfg.label}</strong><span>▼</span>
-                </div>
-                <div class="section-content" style="display:none; margin-top:5px;">
-                    <div class="input-group"><label>Label</label><input type="text" onchange="app.updateConfigVal(${idx}, 'label', this.value)" value="${cfg.label}"></div>
-                    <div class="input-group"><label>Defocus Δz (mm)</label><input type="number" onchange="app.updateConfigVal(${idx}, 'delta_z', parseFloat(this.value))" value="${cfg.delta_z}"></div>
-                    <div class="input-group"><label>Corrected FoV (Deg)</label><input type="number" step="0.1" onchange="app.updateConfigVal(${idx}, 'fov', parseFloat(this.value))" value="${cfg.fov}"></div>
-                    <div class="input-group"><label>Design Wave (nm)</label><input type="number" onchange="app.updateConfigVal(${idx}, 'wavelength', parseFloat(this.value))" value="${cfg.wavelength || 550}"></div>
-                    <div class="input-group"><label>Enable Lens</label><select onchange="app.updateConfigVal(${idx}, 'enabled', this.value === 'true')"><option value="true" ${cfg.enabled?'selected':''}>Yes</option><option value="false" ${!cfg.enabled?'selected':''}>No</option></select></div>
-                    <div class="input-group"><label>Material</label><select onchange="app.updateConfigVal(${idx}, 'material', this.value)">${Object.keys(MATERIALS).map(m => `<option value="${m}" ${cfg.material===m?'selected':''}>${m}</option>`).join('')}</select></div>
+        configs.forEach((cfg, idx) => {
+            container.innerHTML += `
+                <div class="config-card">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <strong style="font-size:0.85rem; color:var(--accent-orange)">Config ${idx+2}</strong>
+                        <span style="color:#e74c3c; cursor:pointer; font-size:0.8rem;" onclick="app.removeConfig(${idx})">Remove</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Defocus Δz</label>
+                        <input type="number" onchange="app.updateCfg(${idx}, 'dz', this.value)" value="${cfg.dz}"><span class="unit">mm</span>
+                    </div>
+                    <div class="input-group" style="margin-top:6px;">
+                        <label>FoV</label>
+                        <input type="number" step="0.01" onchange="app.updateCfg(${idx}, 'fov', this.value)" value="${cfg.fov}"><span class="unit">deg</span>
+                    </div>
+                    <div class="input-group" style="margin-top:6px;">
+                        <label>Wavelength</label>
+                        <input type="number" onchange="app.updateCfg(${idx}, 'wave', this.value)" value="${cfg.wave}"><span class="unit">nm</span>
+                    </div>
+                    <div class="input-group" style="margin-top:6px;">
+                        <label>Flattener Material</label>
+                        <select onchange="app.updateCfg(${idx}, 'mat', this.value)">
+                            ${Object.keys(MATERIALS).map(m => `<option value="${m}" ${cfg.mat===m?'selected':''}>${m}</option>`).join('')}
+                        </select>
+                    </div>
                 </div>
             `;
-            container.appendChild(div);
-            const opt = document.createElement('option');
-            opt.value = cfg.id; opt.text = `Config ${cfg.id}: ${cfg.label}`;
-            visSel.appendChild(opt);
         });
+        solveSystem();
     }
 
-    function updateConfigVal(idx, key, val) { state.configs[idx][key] = val; calculateAll(); }
+    function addConfig() {
+        configs.push({ dz: -25, fov: 0.25, wave: 822, mat: 'SILICA' });
+        renderConfigs();
+    }
+
+    function removeConfig(idx) {
+        configs.splice(idx, 1);
+        renderConfigs();
+    }
+
+    function updateCfg(idx, key, val) {
+        configs[idx][key] = key === 'mat' ? val : parseFloat(val);
+        solveSystem();
+    }
 
     // --- ANALYTICAL SOLVER ---
-    function calculateAll() {
-        document.getElementById('status-indicator').innerText = 'Solving Apertures...';
+    function solveSystem() {
         try {
-            const p = {}; inputs.forEach(id => p[id] = parseFloat(els[id].value));
+            // 1. Parse Inputs
+            const D1 = parseFloat(els.D1.value);
+            const EFL = parseFloat(els.EFL.value);
+            const R1 = parseFloat(els.R1.value); // Usually negative
+            const obs = parseFloat(els.obs.value);
+            const fov1 = parseFloat(els.fov1.value);
+            const wave1 = parseFloat(els.wave1.value);
+
+            // 2. Base Optical Parameters
+            const f1 = Math.abs(R1) / 2; // Focal length of primary (positive magnitude)
+            const m = EFL / f1;          // Magnification
+            const D2 = obs * D1;         // Secondary absolute diameter
+
+            // 3. Solve for Separation (L12) based on FoV and Obstruction
+            const half_fov_rad = Utils.degToRad(fov1 / 2);
+            const denom = 2 * Math.tan(half_fov_rad) - (D1 / f1);
+            const L12 = (D2 - D1) / denom;
             
-            // 0. Auto-Calculate Derived Props
-            const f1 = p.D1 * p.F1_num; 
-            const K1 = -1.0; 
-            
-            // 1. Nominal Geometry
-            const m = p.m;
-            const BFD1 = p.BFD1;
-            const calcC1 = {};
+            if(L12 <= 0 || isNaN(L12)) throw new Error("Invalid geometry: Check Obstruction/EFL ratio.");
 
-            calcC1.f_eff = m * f1;
-            calcC1.L12 = f1 - (BFD1 / m); 
-            
-            // M2 Curvature (R2)
-            const u = f1 - calcC1.L12; 
-            const v = BFD1;            
-            calcC1.f2 = (1 / (1/v - 1/u));
-            calcC1.R2 = 2 * calcC1.f2; 
-            calcC1.K2 = - Math.pow((m + 1)/(m - 1), 2);
+            // 4. Solve for BFD and M2 Curvature
+            const BFD = m * (f1 - L12);
+            const u = f1 - L12; // Virtual object dist
+            const f2 = 1 / ((1/BFD) - (1/u));
+            const R2 = 2 * f2; // M2 Radius
+            const K2 = -Math.pow((m + 1)/(m - 1), 2); // Conic
 
-            results.c1 = calcC1;
-            results.configs = [];
-            results.f1 = f1; 
+            results.c1 = { EFL, f1, m, D1, R1, K1: -1.0, D2, L12, BFD, R2, K2, wave: wave1, fov: fov1 };
+            results.wf = [];
 
-            // Initialize Max D2 with Nominal requirement
-            // Trace Marginal & Chief for Config 1
-            const y_m_M1 = p.D1 / 2;
-            const u_m_M1 = -y_m_M1 / f1;
-            const y_m_M2_c1 = y_m_M1 + u_m_M1 * calcC1.L12; 
-            const half_fov_c1 = Utils.degToRad(p.fov_c1 / 2);
-            const u_c_M1_c1 = Math.tan(half_fov_c1);
-            const y_c_M2_c1 = 0 + u_c_M1_c1 * calcC1.L12; 
-            let max_D2 = 2 * (Math.abs(y_m_M2_c1) + Math.abs(y_c_M2_c1));
-            let d2_driver = "Config 1";
-
-            // 2. Loop Configs to Solve Optics & Check Aperture Needs
-            state.configs.forEach(cfg => {
-                const res = { ...cfg };
-                res.L12_prime = calcC1.L12 + cfg.delta_z;
+            // 5. Wide Field Iterations
+            configs.forEach((cfg, idx) => {
+                const wf = { ...cfg, id: idx+2 };
                 
-                // Recalculate First Order
-                const s_new = f1 - res.L12_prime;
-                const inv_BFD = (1/calcC1.f2) + (1/s_new);
-                res.BFD_prime = 1 / inv_BFD;
-                res.m_prime = res.BFD_prime / s_new;
-                res.f_eff_prime = res.m_prime * f1;
+                // New Positions
+                wf.L12 = L12 + cfg.dz;
+                const s = f1 - wf.L12;
+                wf.BFD = 1 / ((1/f2) + (1/s));
+                wf.m = wf.BFD / s;
+                wf.EFL = wf.m * f1;
+
+                // Vignetting Check on M2
+                const y_m_M2 = (D1/2) * (1 - wf.L12/f1);
+                const y_c_M2 = wf.L12 * Math.tan(Utils.degToRad(cfg.fov/2));
+                wf.D2_req = 2 * (Math.abs(y_m_M2) + Math.abs(y_c_M2));
+                wf.vignetted = wf.D2_req > D2;
+
+                // Lens Solve
+                wf.n = Utils.getRefractiveIndex(cfg.mat, cfg.wave);
+                const p_sum = (1 + Math.abs(wf.m)) / (Math.abs(wf.m) * f1);
+                wf.R_lens = -1 * (wf.n - 1) / (wf.n * p_sum) * 3.5; // Heuristic scaling
+
+                const d_lens_img = 0.7 * wf.BFD; 
+                wf.d_lens = d_lens_img;
+
+                const u_m_img = -(D1/2) / wf.EFL;
+                const y_m_lens = Math.abs(u_m_img * d_lens_img);
+                const h_img = Math.abs(wf.EFL) * Math.tan(Utils.degToRad(cfg.fov/2));
+                const y_c_lens = h_img - ((h_img / wf.BFD) * d_lens_img);
                 
-                // APERTURE CHECK FOR THIS CONFIG
-                // Marginal Ray Height at new position L12_prime
-                const y_m_M2_new = y_m_M1 + u_m_M1 * res.L12_prime;
-                // Chief Ray Height
-                const half_fov_new = Utils.degToRad(cfg.fov / 2);
-                const u_c_M1_new = Math.tan(half_fov_new);
-                const y_c_M2_new = 0 + u_c_M1_new * res.L12_prime;
-                
-                const D2_needed = 2 * (Math.abs(y_m_M2_new) + Math.abs(y_c_M2_new));
-                if (D2_needed > max_D2) {
-                    max_D2 = D2_needed;
-                    d2_driver = cfg.label;
-                }
+                wf.D_lens = 2 * (y_m_lens + Math.abs(y_c_lens)) * 1.05;
 
-                // Lens Calcs
-                const d_lens_from_img = 0.7 * res.BFD_prime; 
-                res.d_lens = d_lens_from_img;
+                const semidiam = wf.D_lens / 2;
+                const R_abs = Math.abs(wf.R_lens);
+                wf.sag = (semidiam < R_abs) ? R_abs - Math.sqrt(R_abs*R_abs - semidiam*semidiam) : semidiam;
+                wf.CT = 4.0;
+                wf.ET = wf.CT + wf.sag;
+                wf.BFD_final = wf.BFD - d_lens_img - wf.CT;
 
-                // --- LENS CALCULATION ---
-                if (cfg.enabled) {
-                    const wave_to_use = cfg.wavelength || p.lambda_0;
-                    const n = Utils.getRefractiveIndex(cfg.material, wave_to_use);
-                    res.n_ref = n; 
-                    
-                    const Petzval_sys = (1 + Math.abs(res.m_prime)) / (Math.abs(res.m_prime) * f1);
-                    let R1 = -1 * (n-1) / (n * Petzval_sys) * 3.5; 
-                    res.R1 = R1;
-
-                    // Diameter
-                    const u_m_img = -(p.D1/2) / res.f_eff_prime;
-                    const y_m_lens = Math.abs(u_m_img * d_lens_from_img);
-                    const h_img = Math.abs(res.f_eff_prime) * Math.tan(Utils.degToRad(cfg.fov/2));
-                    const slope_c = h_img / res.BFD_prime;
-                    const y_c_lens = h_img - (slope_c * d_lens_from_img);
-                    res.D_lens = 2 * (y_m_lens + Math.abs(y_c_lens)) * 1.05; 
-                    
-                    // Geometry
-                    const r_abs = Math.abs(res.R1);
-                    const semidiam = res.D_lens / 2;
-                    let sag = 0;
-                    if(semidiam < r_abs) {
-                        sag = r_abs - Math.sqrt(r_abs*r_abs - semidiam*semidiam);
-                    } else {
-                        sag = semidiam; 
-                    }
-                    res.sag = sag;
-                    const CT = 4.0;
-                    res.thick = CT; 
-                    res.edge_thick = CT + sag;
-                    
-                    res.BFD_final = res.BFD_prime - d_lens_from_img - res.thick;
-                } else {
-                    res.BFD_final = res.BFD_prime;
-                }
-                results.configs.push(res);
+                results.wf.push(wf);
             });
 
-            // 3. Finalize Global Params
-            calcC1.D2 = max_D2;
-            calcC1.d2_driver = d2_driver;
-            calcC1.obscuration = calcC1.D2 / p.D1;
+            renderTable();
+            updateChartSelectors();
+            drawSystem(true);
 
-            renderUI();
-            app.drawSystem(); 
-            document.getElementById('status-indicator').innerText = 'Ready';
-        } catch(e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            document.getElementById('results-table').innerHTML = `<tr><td class="warn-text">Error: ${e.message}</td></tr>`;
+        }
     }
 
-    // --- UI RENDERING ---
-    function renderUI() {
-        const header = document.getElementById('tabs-header');
-        const content = document.getElementById('tabs-content-container');
-        header.innerHTML = ''; content.innerHTML = '';
-        
-        const tabs = [
-            { id: 't_c1', label: 'Config 1 (Nominal)', render: renderC1 },
-            { id: 't_zm', label: 'Zemax Export', render: renderZemax }
-        ];
-        state.configs.forEach((cfg, i) => tabs.splice(1+i, 0, { id: `t_c${cfg.id}`, label: `Config ${cfg.id}`, render: ()=>renderCfg(i) }));
-
-        tabs.forEach((tab, i) => {
-            const btn = document.createElement('button');
-            btn.className = `tab-btn ${i===0?'active':''}`; btn.innerText = tab.label;
-            btn.onclick = () => { document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active')); document.getElementById(tab.id).classList.add('active'); };
-            header.appendChild(btn);
-            const div = document.createElement('div');
-            div.id = tab.id; div.className = `tab-content ${i===0?'active':''}`; div.innerHTML = tab.render();
-            content.appendChild(div);
-        });
-    }
-
-    function renderC1() {
-        const c = results.c1;
-        return `<h3>Calculated Geometry (Config 1)</h3>
-        <table>
-            <tr><th>Parameter</th><th>Value</th><th>Note</th></tr>
-            <tr><td>Primary Focal Length</td><td>${Utils.fmt(results.f1)} mm</td><td>Derived from F#${els.F1_num.value}</td></tr>
-            <tr><td>M2 Diameter</td><td>${Utils.fmt(c.D2)} mm</td><td>Driven by ${c.d2_driver}</td></tr>
-            <tr><td>Obscuration</td><td>${Utils.fmt(c.obscuration*100, 1)} %</td><td>(Area: ${Utils.fmt(c.obscuration**2 * 100, 1)}%)</td></tr>
-            <tr><td>M2 Radius (R2)</td><td>${Utils.fmt(c.R2)} mm</td><td>Driven by Mag & BFD</td></tr>
-            <tr><td>Mirror Dist (L12)</td><td>${Utils.fmt(c.L12)} mm</td><td>Separation</td></tr>
-            <tr><td>EFL</td><td>${Utils.fmt(c.f_eff)} mm</td><td>F/${Utils.fmt(c.f_eff/els.D1.value, 1)}</td></tr>
-        </table>`;
-    }
-
-    function renderCfg(i) {
-        const c = results.configs[i];
-        const wave = c.wavelength || parseFloat(els.lambda_0.value);
-        return `<h3>${c.label} Analysis</h3>
-        <table>
-            <tr><th>Element</th><th>Property</th><th>Value</th></tr>
-            <tr><td rowspan="7">Corrector Lens<br>(Plano-Concave)</td><td>Design Wavelength</td><td>${wave} nm</td></tr>
-            <tr><td>Refractive Index</td><td>${Utils.fmt(c.n_ref, 4)}</td></tr>
-            <tr><td>Diameter</td><td>${Utils.fmt(c.D_lens)} mm</td></tr>
-            <tr><td>Radius R1</td><td>${Utils.fmt(c.R1)} mm</td></tr>
-            <tr><td>Center Thickness</td><td>${Utils.fmt(c.thick)} mm</td></tr>
-            <tr><td style="color:var(--accent-orange)">Sagitta (Curve Depth)</td><td style="color:var(--accent-orange)">${Utils.fmt(c.sag, 4)} mm</td></tr>
-            <tr><td style="color:var(--accent-green)">Edge Thickness</td><td style="color:var(--accent-green)">${Utils.fmt(c.edge_thick)} mm</td></tr>
-            <tr><td>Glass</td><td>${c.material}</td></tr>
-            <tr><td rowspan="2">System</td><td>EFL</td><td>${Utils.fmt(c.f_eff_prime)} mm</td></tr>
-            <tr><td>Final BFD</td><td>${Utils.fmt(c.BFD_final)} mm</td></tr>
-        </table>`;
-    }
-
-    function renderZemax() {
-        const D1 = parseFloat(els.D1.value);
-        const R1 = -2 * results.f1;
-        const K1 = -1.0;
-        
-        let html = `<h3>Zemax Primary Mirror (M1) Parameters</h3>
-        <table>
-            <tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>
-            <tr><td><strong>Radius of Curvature (R1)</strong></td><td>${Utils.fmt(R1)}</td><td>mm</td></tr>
-            <tr><td><strong>Conic Constant (K1)</strong></td><td>${Utils.fmt(K1)}</td><td>-</td></tr>
-            <tr><td><strong>Clear Semi-Diameter</strong></td><td>${Utils.fmt(D1/2)}</td><td>mm</td></tr>
-            <tr><td><strong>Material</strong></td><td>MIRROR</td><td>-</td></tr>
-        </table>
-        <br>
-        <label>ZPL Macro</label>
-        <textarea readonly onclick="this.select()">${generateZPL()}</textarea>`;
-        return html;
-    }
-
-    function generateZPL() {
+    // --- UNIFIED TABLE RENDERER ---
+    function renderTable() {
         const c1 = results.c1;
-        const D1 = els.D1.value;
-        const L12 = -1 * c1.L12; 
-        const N_configs = parseInt(els.N_config.value);
-        const wave_nominal = parseFloat(els.lambda_0.value)/1000;
+        const wfs = results.wf;
+        let html = `
+            <thead>
+                <tr>
+                    <th>Zemax Parameter</th>
+                    <th>Nominal (C1)</th>
+                    ${wfs.map(w => `<th>WF Mode (C${w.id})</th>`).join('')}
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="section-row"><td colspan="${2 + wfs.length}">First Order Properties</td></tr>
+                <tr><td class="row-header">System EFL (mm)</td><td>${Utils.fmt(c1.EFL,1)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL,1)}</td>`).join('')}</tr>
+                <tr><td class="row-header">System F/#</td><td>${Utils.fmt(c1.EFL/c1.D1,2)}</td>${wfs.map(w => `<td>${Utils.fmt(w.EFL/c1.D1,2)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Wavelength (nm)</td><td>${c1.wave}</td>${wfs.map(w => `<td>${w.wave}</td>`).join('')}</tr>
+                <tr><td class="row-header">Field of View (Deg)</td><td>${c1.fov}</td>${wfs.map(w => `<td>${w.fov}</td>`).join('')}</tr>
+                
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 2: Primary Mirror (M1)</td></tr>
+                <tr><td class="row-header">Radius (mm)</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.R1,3)}</td></tr>
+                <tr><td class="row-header">Conic</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.K1,3)}</td></tr>
+                <tr><td class="row-header">Semi-Diameter (mm)</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.D1/2,2)}</td></tr>
+                <tr><td class="row-header">Thickness to M2 (mm)</td><td>${Utils.fmt(-c1.L12,3)}</td>${wfs.map(w => `<td>${Utils.fmt(-w.L12,3)}</td>`).join('')}</tr>
 
-        let zpl = `! ZPL Macro for Cassegrain Multi-Config\n! Generated by Web Tool v3.5\n\n`;
-        zpl += `SETSYSTEM 0, 0, ${D1} ! Aperture Entrance Pupil\n`;
-        zpl += `WAVELENGTH 1, ${wave_nominal} ! Microns (Nominal)\n`;
-        zpl += `UNITS 0 ! Millimeters\n\n`;
-        
-        zpl += `INSERTSURFACE 1\nINSERTSURFACE 2\nINSERTSURFACE 3\nINSERTSURFACE 4\nINSERTSURFACE 5\nINSERTSURFACE 6\n`;
-        zpl += `SURFACETYPE 2, STANDARD\nSETCRVT 2, ${1/(-2*results.f1)}\nSETCONI 2, -1.0\nSETTHIC 2, ${L12}\nSETGLAS 2, MIRROR\nSETSDIA 2, ${D1/2}\nCOMM 2, "PRIMARY"\n`;
-        zpl += `SURFACETYPE 3, STANDARD\nSETCRVT 3, ${1/c1.R2}\nSETCONI 3, ${c1.K2}\nSETTHIC 3, ${els.BFD1.value}\nSETGLAS 3, MIRROR\nSETSDIA 3, ${c1.D2/2}\nCOMM 3, "SECONDARY"\n`;
-        zpl += `SURFACETYPE 4, STANDARD\nSETTHIC 4, 0\nSETGLAS 4, SILICA\nCOMM 4, "LENS_IN"\n`;
-        zpl += `SURFACETYPE 5, STANDARD\nSETTHIC 5, 0\nCOMM 5, "LENS_OUT"\n`;
-        zpl += `SURFACETYPE 6, STANDARD\nCOMM 6, "IMAGE"\n\n`;
-        zpl += `INSERTMCO ${N_configs}\n`;
-        
-        // 1. THIC 2 (Separation)
-        zpl += `INSERTMCOPERAND 1, 0, "THIC", 2, 0, 0, 0\n`;
-        zpl += `SETMCOMONITOR 1, 1, ${L12}\n`;
-        results.configs.forEach((cfg, i) => { zpl += `SETMCOMONITOR 1, ${i+2}, ${L12 + cfg.delta_z}\n`; });
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 3: Secondary Mirror (M2)</td></tr>
+                <tr><td class="row-header">Radius (mm)</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.R2,3)}</td></tr>
+                <tr><td class="row-header">Conic</td><td colspan="${1 + wfs.length}">${Utils.fmt(c1.K2,3)}</td></tr>
+                <tr><td class="row-header">Clear Semi-Diameter</td>
+                    <td>${Utils.fmt(c1.D2/2,2)}</td>
+                    ${wfs.map(w => `<td class="${w.vignetted ? 'warn-text' : ''}">${Utils.fmt(w.D2_req/2,2)} ${w.vignetted ? '(Vignettes!)':''}</td>`).join('')}
+                </tr>
+                <tr><td class="row-header">Thickness to Next (mm)</td><td>${Utils.fmt(c1.BFD,3)}</td>${wfs.map(w => `<td>${Utils.fmt(w.BFD - w.d_lens - w.CT, 3)}</td>`).join('')}</tr>
 
-        // 2. THIC 3 (M2 Dist)
-        zpl += `INSERTMCOPERAND 2, 0, "THIC", 3, 0, 0, 0\n`;
-        zpl += `SETMCOMONITOR 2, 1, ${els.BFD1.value}\n`;
-        results.configs.forEach((cfg, i) => {
-            const dist = cfg.enabled ? (cfg.BFD_prime - cfg.d_lens - cfg.thick) : cfg.BFD_prime;
-            zpl += `SETMCOMONITOR 2, ${i+2}, ${dist}\n`;
-        });
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 4: Field Flattener (Front)</td></tr>
+                <tr><td class="row-header">Radius (mm)</td><td>Infinity (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.R_lens,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness (CT) (mm)</td><td>0 (Ignored)</td>${wfs.map(w => `<td>${Utils.fmt(w.CT,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Edge Thickness (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.ET,3)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Semi-Diameter (mm)</td><td>-</td>${wfs.map(w => `<td>${Utils.fmt(w.D_lens/2,2)}</td>`).join('')}</tr>
+                <tr><td class="row-header">Glass</td><td>-</td>${wfs.map(w => `<td>${w.mat} (n=${Utils.fmt(w.n,3)})</td>`).join('')}</tr>
 
-        // 3. WAVE (System Wavelength)
-        zpl += `INSERTMCOPERAND 3, 0, "WAVE", 1, 0, 0, 0\n`;
-        zpl += `SETMCOMONITOR 3, 1, ${wave_nominal}\n`;
-        results.configs.forEach((cfg, i) => {
-            const w = cfg.wavelength ? cfg.wavelength/1000 : wave_nominal;
-            zpl += `SETMCOMONITOR 3, ${i+2}, ${w}\n`;
-        });
-
-        // 4. IGNR Lens In
-        zpl += `INSERTMCOPERAND 4, 0, "IGNR", 4, 0, 0, 0\n`;
-        zpl += `SETMCOMONITOR 4, 1, 1\n`; 
-        results.configs.forEach((cfg, i) => { zpl += `SETMCOMONITOR 4, ${i+2}, ${cfg.enabled ? 0 : 1}\n`; });
-
-        // 5. IGNR Lens Out
-        zpl += `INSERTMCOPERAND 5, 0, "IGNR", 5, 0, 0, 0\n`;
-        zpl += `SETMCOMONITOR 5, 1, 1\n`; 
-        results.configs.forEach((cfg, i) => { zpl += `SETMCOMONITOR 5, ${i+2}, ${cfg.enabled ? 0 : 1}\n`; });
-
-        // 6. CRVT Lens
-        zpl += `INSERTMCOPERAND 6, 0, "CRVT", 4, 0, 0, 0\n`;
-        results.configs.forEach((cfg, i) => { if(cfg.enabled) zpl += `SETMCOMONITOR 6, ${i+2}, ${1/cfg.R1}\n`; });
-
-        // 7. THIC Lens
-        zpl += `INSERTMCOPERAND 7, 0, "THIC", 4, 0, 0, 0\n`;
-        results.configs.forEach((cfg, i) => { if(cfg.enabled) zpl += `SETMCOMONITOR 7, ${i+2}, ${cfg.thick}\n`; });
-
-        // 8. THIC Lens to Image
-        zpl += `INSERTMCOPERAND 8, 0, "THIC", 5, 0, 0, 0\n`;
-        results.configs.forEach((cfg, i) => { if(cfg.enabled) zpl += `SETMCOMONITOR 8, ${i+2}, ${cfg.d_lens}\n`; });
-        
-        zpl += `UPDATE\n`;
-        return zpl;
+                <tr class="section-row"><td colspan="${2 + wfs.length}">Surf 5: Field Flattener (Back)</td></tr>
+                <tr><td class="row-header">Radius (mm)</td><td>Infinity</td>${wfs.map(w => `<td>Infinity</td>`).join('')}</tr>
+                <tr><td class="row-header">Thickness to Image</td><td>0</td>${wfs.map(w => `<td>${Utils.fmt(w.d_lens,3)}</td>`).join('')}</tr>
+            </tbody>
+        `;
+        document.getElementById('results-table').innerHTML = html;
     }
 
-    // --- DRAW ---
+    // --- VISUALIZATION ---
+    function updateChartSelectors() {
+        const sel = document.getElementById('vis-selector');
+        sel.innerHTML = `<option value="1">Config 1 (Nominal)</option>`;
+        results.wf.forEach(w => {
+            sel.innerHTML += `<option value="${w.id}">Config ${w.id} (WF)</option>`;
+        });
+    }
+
     function drawSystem(forceFit = false) {
+        if(!results.c1.EFL) return; // Not solved yet
         const canvas = document.getElementById('optical-canvas');
         canvas.innerHTML = '';
-        const c = results.c1;
-        const sel = document.getElementById('vis-selector').value;
-        const isC1 = sel === '1';
-        const cfgIdx = parseInt(sel) - 2;
         
-        // --- ABSOLUTE COORDINATE SYSTEM (M1 VERTEX = 0) ---
-        let L12_actual = c.L12; // Positive separation magnitude
-        let dist_M2_Image = parseFloat(els.BFD1.value); // Nominal distance M2->Img
+        const c1 = results.c1;
+        const activeId = parseInt(document.getElementById('vis-selector').value);
         
-        if(!isC1) {
-             const cfg = results.configs[cfgIdx];
-             L12_actual += cfg.delta_z; // delta_z is usually negative (closer)
-             dist_M2_Image = cfg.BFD_prime; // Recalculated M2->Img distance
+        let L12 = c1.L12;
+        let BFD = c1.BFD;
+        let activeWF = null;
+
+        if (activeId !== 1) {
+            activeWF = results.wf.find(w => w.id === activeId);
+            if(activeWF) {
+                L12 = activeWF.L12;
+                BFD = activeWF.BFD;
+            }
         }
 
-        // 1. Coordinates
         const M1_z = 0;
-        const M2_z = -Math.abs(L12_actual); // M2 is to the left of M1
-        const Img_z = M2_z + dist_M2_Image; // Image location relative to M1 origin
+        const M2_z = -L12;
+        const Img_z = M2_z + BFD;
 
-        // Draw Geometry
+        // Draw Helper
+        const map = (z,y) => ({ x: z, y: y }); // SVG handles translation via viewBox
+
         // M1
-        const D1 = parseFloat(els.D1.value);
-        const R1 = results.f1 * 2;
-        const sag1 = (D1*D1)/(8*R1);
-        const d1path = `M ${-sag1},${D1/2} Q 0,0 ${-sag1},${-D1/2}`;
-        canvas.innerHTML += `<path d="${d1path}" stroke="#3498db" fill="none" stroke-width="4" vector-effect="non-scaling-stroke" />`;
+        const R1 = Math.abs(c1.R1);
+        const sag1 = (c1.D1*c1.D1)/(8*R1);
+        canvas.innerHTML += `<path d="M ${-sag1},${c1.D1/2} Q 0,0 ${-sag1},${-c1.D1/2}" stroke="#3498db" fill="none" stroke-width="4" vector-effect="non-scaling-stroke" />`;
         
         // M2
-        const D2 = c.D2;
-        const R2 = Math.abs(c.R2);
-        const sag2 = (D2*D2)/(8*R2);
-        const d2path = `M ${M2_z - sag2},${D2/2} Q ${M2_z},0 ${M2_z - sag2},${-D2/2}`;
-        canvas.innerHTML += `<path d="${d2path}" stroke="#e67e22" fill="none" stroke-width="4" vector-effect="non-scaling-stroke" />`;
+        const R2 = Math.abs(c1.R2);
+        const sag2 = (c1.D2*c1.D2)/(8*R2);
+        canvas.innerHTML += `<path d="M ${M2_z - sag2},${c1.D2/2} Q ${M2_z},0 ${M2_z - sag2},${-c1.D2/2}" stroke="#e67e22" fill="none" stroke-width="4" vector-effect="non-scaling-stroke" />`;
 
         // Lens
-        if (!isC1 && results.configs[cfgIdx].enabled) {
-            const cfg = results.configs[cfgIdx];
-            // Lens is placed relative to Image plane (backed off by d_lens)
-            // Center of lens stack approx at: Img_z - d_lens
-            // Front face at: Img_z - d_lens - thick
-            const z_lens_front = Img_z - cfg.d_lens - cfg.thick;
-            
-            const h = cfg.D_lens / 2;
-            const t = cfg.thick;
-            
-            // Draw box for lens with solid opacity
-            canvas.innerHTML += `<rect x="${z_lens_front}" y="${-h}" width="${t}" height="${h*2}" fill="#2ecc71" stroke="#27ae60" stroke-width="2" vector-effect="non-scaling-stroke" opacity="0.8"/>`;
+        if (activeWF) {
+            const z_lens = Img_z - activeWF.d_lens - activeWF.CT;
+            const h = activeWF.D_lens / 2;
+            canvas.innerHTML += `<rect x="${z_lens}" y="${-h}" width="${activeWF.CT}" height="${h*2}" fill="rgba(46, 204, 113, 0.5)" stroke="#27ae60" vector-effect="non-scaling-stroke"/>`;
         }
 
         // Image Plane
-        canvas.innerHTML += `<line x1="${Img_z}" y1="-100" x2="${Img_z}" y2="100" stroke="#95a5a6" stroke-dasharray="10,10" vector-effect="non-scaling-stroke"/>`;
+        canvas.innerHTML += `<line x1="${Img_z}" y1="${-c1.D1/4}" x2="${Img_z}" y2="${c1.D1/4}" stroke="#bdc3c7" stroke-dasharray="5,5" vector-effect="non-scaling-stroke"/>`;
 
-        // Rays (Schematic)
+        // Marginal Rays
         const drawRay = (h_in) => {
-            const y_m2 = h_in * (1 - Math.abs(L12_actual)/results.f1);
+            const y_m2 = h_in * (1 - L12/c1.f1);
             const pts = `${M2_z - 500},${h_in} ${0},${h_in} ${M2_z},${y_m2} ${Img_z},0`;
-            canvas.innerHTML += `<polyline points="${pts}" stroke="yellow" fill="none" stroke-width="1" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
+            canvas.innerHTML += `<polyline points="${pts}" stroke="#f1c40f" fill="none" stroke-width="1.5" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
         };
-        drawRay(D1/2);
-        drawRay(D1/2 * 0.5);
+        drawRay(c1.D1/2);
+        drawRay(-c1.D1/2);
 
-        // FIT VIEW LOGIC
+        // Fit
         if(forceFit) {
-            const padding = 200;
-            const min_x = Math.min(M2_z, Img_z) - padding;
-            const max_x = Math.max(0, Img_z) + padding;
-            view.x = min_x;
-            view.y = -D1/2 - padding;
-            view.w = max_x - min_x;
-            view.h = D1 + padding*2;
+            const pad = 150;
+            view.x = M2_z - pad;
+            view.y = -c1.D1/2 - pad;
+            view.w = (Img_z - M2_z) + pad*2;
+            view.h = c1.D1 + pad*2;
+            updateViewBox();
+        } else {
             updateViewBox();
         }
     }
 
-    function resetView() {
-        drawSystem(true);
+    // --- PAN/ZOOM INTERFACE ---
+    function handleZoom(e) {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.1 : 0.9;
+        const cx = view.x + view.w/2;
+        const cy = view.y + view.h/2;
+        view.w *= factor; view.h *= factor;
+        view.x = cx - view.w/2; view.y = cy - view.h/2;
+        updateViewBox();
+    }
+
+    function handleMouseDown(e) { view.drag = true; view.lx = e.clientX; view.ly = e.clientY; }
+    
+    function handleMouseMove(e) {
+        if (!view.drag) return;
+        const svg = document.getElementById('optical-canvas');
+        const r = svg.getBoundingClientRect();
+        view.x -= (e.clientX - view.lx) * (view.w / r.width);
+        view.y -= (e.clientY - view.ly) * (view.h / r.height);
+        view.lx = e.clientX; view.ly = e.clientY;
+        updateViewBox();
     }
     
-    // --- SESSION & INIT ---
-    function saveSession() {
-        const data = { inputs: {}, configs: state.configs, ts: Date.now() };
-        inputs.forEach(id => data.inputs[id] = els[id].value);
-        localStorage.setItem('cassegrain_design_v3', JSON.stringify(data)); 
-        alert('Session Saved');
+    function handleMouseUp() { view.drag = false; }
+    
+    function updateViewBox() {
+        document.getElementById('optical-canvas').setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     }
 
-    function loadSession() {
-        const raw = localStorage.getItem('cassegrain_design_v3');
-        if(!raw) return;
-        try {
-            const data = JSON.parse(raw);
-            if(confirm(`Found saved session from ${new Date(data.ts).toLocaleString()}. Load?`)) {
-                inputs.forEach(id => { if(data.inputs[id] !== undefined) els[id].value = data.inputs[id]; });
-                if(data.configs) state.configs = data.configs;
-                updateConfigCount(parseInt(els.N_config.value));
-            }
-        } catch(e) {}
-    }
-
+    // --- TEST CASE & INIT ---
     function loadTestCase() {
-        // Target: 1055nm SMF NA ~0.14 -> F/3.6 approx.
-        // D1=600. F1=1.5 (f1=900). m=2.4 -> F_sys=3.6.
-        els.D1.value = 600; 
-        els.F1_num.value = 1.5; 
-        els.m.value = 2.4;
-        els.BFD1.value = 150; 
-        els.N_config.value = 3;
-        
-        // Nominal Config 1
-        els.lambda_0.value = 1055;
-        els.fov_c1.value = 0.057; // 3.4 arcmin
+        // SMF NA ~0.14 Case. 
+        els.D1.value = 600;
+        els.EFL.value = 3600; // F/6
+        els.R1.value = -1800; // f1=900
+        els.obs.value = 0.30;
+        els.fov1.value = 0.057; // 3.4'
+        els.wave1.value = 1055;
 
-        state.configs = [
-             {id:2, label:"Wide Field A", delta_z: -25, fov:0.25, wavelength: 822, fov_unit:'deg', enabled:true, material:'SILICA'},
-             {id:3, label:"Wide Field B", delta_z: -25, fov:0.25, wavelength: 1807, fov_unit:'deg', enabled:true, material:'SILICA'}
+        configs = [
+             { dz: -25, fov: 0.25, wave: 822, mat: 'SILICA' },
+             { dz: -25, fov: 0.25, wave: 1807, mat: 'SILICA' }
         ];
-        renderConfigInputs();
-        calculateAll();
-        drawSystem(true);
+        renderConfigs(); // Triggers solve
     }
 
     return { 
-        init, addConfig, removeConfig, updateConfigVal, drawSystem, loadTestCase, resetView,
-        resetDefaults: ()=>{location.reload()}, saveSession, showHelp: ()=>{document.getElementById('modal-help').style.display='flex'} 
+        init, addConfig, removeConfig, updateCfg, drawSystem, loadTestCase, resetView: () => drawSystem(true)
     };
 })();
 
